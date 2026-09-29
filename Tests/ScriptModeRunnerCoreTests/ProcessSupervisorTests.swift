@@ -54,6 +54,34 @@ import Testing
     })
 }
 
+@Test func streamsOutputBeforeLongRunningProcessExits() async throws {
+    let events = EventCollector()
+    let supervisor = ProcessSupervisor { events.append($0) }
+    let spec = LaunchSpec(
+        executable: "/bin/sh",
+        arguments: ["-c", "printf 'READY\\n'; sleep 30"],
+        cwd: nil,
+        environment: [:]
+    )
+
+    try await supervisor.start(runID: "streaming", spec: spec)
+    var receivedBeforeStop = false
+    for _ in 0..<50 {
+        receivedBeforeStop = events.snapshot().contains { event in
+            if case let .output("streaming", .stdout, data) = event {
+                return String(decoding: data, as: UTF8.self).contains("READY")
+            }
+            return false
+        }
+        if receivedBeforeStop { break }
+        try await Task.sleep(for: .milliseconds(20))
+    }
+    await supervisor.stop(runID: "streaming", policy: .init(sigkill: true))
+    _ = try await waitForTerminalEvent(runID: "streaming", events: events)
+
+    #expect(receivedBeforeStop)
+}
+
 private final class EventCollector: @unchecked Sendable {
     private let lock = NSLock()
     private var events: [ProcessEvent] = []

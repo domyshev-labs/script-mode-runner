@@ -1,0 +1,75 @@
+tabs:
+  - id: application-1
+    title: "Application #1"
+    buttons:
+      - id: lab
+        title: Lab
+        on_deactivate: &stop
+          sigint: true
+          sigkill: true
+          timeout: 2s
+        scripts:
+          - id: dev-lab
+            title: yarn dev:lab · :3010
+            command: yarn dev:lab
+            cwd: ../TestApplications/application-1
+      - id: mock
+        title: Mock pair
+        on_deactivate: *stop
+        scripts:
+          - id: dev-mock
+            title: yarn dev:mock · :3010
+            command: yarn dev:mock
+            cwd: ../TestApplications/application-1
+          - id: mock
+            title: yarn mock · :3015
+            command: yarn mock
+            cwd: ../TestApplications/application-1
+
+  - id: application-2
+    title: "Application #2"
+    buttons:
+      - id: lab
+        title: Lab
+        on_deactivate: *stop
+        scripts:
+          - id: dev-lab
+            title: yarn dev:lab · :3020
+            command: yarn dev:lab
+            cwd: ../TestApplications/application-2
+      - id: mock
+        title: Mock pair
+        on_deactivate: *stop
+        scripts:
+          - id: dev-mock
+            title: yarn dev:mock · :3020
+            command: yarn dev:mock
+            cwd: ../TestApplications/application-2
+          - id: mock
+            title: yarn mock · :3025
+            command: yarn mock
+            cwd: ../TestApplications/application-2
+
+  - id: application-3
+    title: "Application #3"
+    buttons:
+      - id: lab
+        title: Lab
+        on_deactivate: *stop
+        scripts:
+          - id: dev-lab
+            title: yarn dev:lab · :3030
+            command: yarn dev:lab
+            cwd: ../TestApplications/application-3
+      - id: mock
+        title: Mock pair
+        on_deactivate: *stop
+        scripts:
+          - id: dev-mock
+            title: yarn dev:mock · :3030
+            command: yarn dev:mock
+            cwd: ../TestApplications/application-3
+          - id: mock
+            title: yarn mock · :3035
+            command: yarn mock
+            cwd: ../TestApplications/application-3

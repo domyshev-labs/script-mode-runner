@@ -84,6 +84,7 @@ struct MainPopoverView: View {
                 HStack {
                     Circle().fill(log.status?.isRunning == true ? .green : .secondary).frame(width: 7, height: 7)
                     Text(log.status?.displayText ?? "Не запущен").font(.caption).foregroundStyle(.secondary)
+                    Text("· \(log.buffer.count) bytes").font(.caption).foregroundStyle(.tertiary)
                     Spacer()
                 }
                 LogTextView(text: log.buffer.string)

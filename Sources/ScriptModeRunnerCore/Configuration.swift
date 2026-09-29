@@ -20,6 +20,19 @@ public struct RunnerConfiguration: Codable, Equatable, Sendable {
         }
         return self
     }
+
+    public func resolvingRelativePaths(relativeTo baseDirectory: URL) -> RunnerConfiguration {
+        RunnerConfiguration(tabs: tabs.map { tab in
+            RunnerTab(id: tab.id, title: tab.title, buttons: tab.buttons.map { mode in
+                RunnerMode(
+                    id: mode.id,
+                    title: mode.title,
+                    onDeactivate: mode.onDeactivate,
+                    scripts: mode.scripts.map { $0.resolvingRelativePath(relativeTo: baseDirectory) }
+                )
+            })
+        })
+    }
 }
 
 public struct RunnerTab: Codable, Equatable, Identifiable, Sendable {
@@ -192,6 +205,20 @@ public struct RunnerScript: Codable, Equatable, Identifiable, Sendable {
                 throw ConfigurationError.invalidScript(id: id, reason: "file is not executable: \(expanded)")
             }
         }
+    }
+
+    fileprivate func resolvingRelativePath(relativeTo baseDirectory: URL) -> RunnerScript {
+        guard let cwd, !cwd.hasPrefix("/"), !cwd.hasPrefix("~") else { return self }
+        return RunnerScript(
+            id: id,
+            title: title,
+            executable: executable,
+            arguments: arguments,
+            command: command,
+            shell: shell,
+            cwd: baseDirectory.appending(path: cwd).standardizedFileURL.path,
+            environment: environment
+        )
     }
 }
 

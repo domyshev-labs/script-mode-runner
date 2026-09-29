@@ -26,4 +26,6 @@ public struct ByteRingBuffer: Sendable {
     public var string: String {
         String(decoding: data, as: UTF8.self)
     }
+
+    public var count: Int { data.count }
 }

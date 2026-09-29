@@ -1,0 +1,11 @@
+{
+  "name": "script-mode-runner-test-application-3",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "yarn@1.22.22",
+  "scripts": {
+    "dev:lab": "node server.mjs 'Application #3' dev:lab 3030",
+    "dev:mock": "node server.mjs 'Application #3' dev:mock 3030 3035",
+    "mock": "node server.mjs 'Application #3' mock 3035"
+  }
+}

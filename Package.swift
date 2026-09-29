@@ -25,5 +25,9 @@ let package = Package(
             name: "ScriptModeRunnerCoreTests",
             dependencies: ["ScriptModeRunnerCore"]
         ),
+        .testTarget(
+            name: "ScriptModeRunnerAppTests",
+            dependencies: ["ScriptModeRunnerApp"]
+        ),
     ]
 )
