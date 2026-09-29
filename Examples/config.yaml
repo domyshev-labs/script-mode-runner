@@ -1,0 +1,27 @@
+tabs:
+  - id: development
+    title: Development
+    buttons:
+      - id: frontend
+        title: Frontend
+        on_deactivate:
+          sigint: true
+          sigkill: true
+          timeout: 5s
+        scripts:
+          - id: web
+            title: Yarn dev
+            command: yarn dev
+            shell: /bin/zsh
+            cwd: ~/projects/my-app
+            environment:
+              NODE_ENV: development
+      - id: diagnostics
+        title: Diagnostics
+        on_deactivate:
+          sigint: true
+        scripts:
+          - id: ping
+            title: Ping
+            executable: /sbin/ping
+            arguments: [localhost]
