@@ -16,6 +16,7 @@ struct MainPopoverView: View {
                     systemImage: "doc.badge.gearshape",
                     description: Text(state.errorMessage ?? "Add at least one tab")
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             if let error = state.errorMessage, state.configuration != nil {
                 Text(error).font(.caption).foregroundStyle(.red).lineLimit(3)
