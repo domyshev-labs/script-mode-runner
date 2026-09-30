@@ -12,9 +12,9 @@ struct MainPopoverView: View {
                 content(config)
             } else {
                 ContentUnavailableView(
-                    "Нет конфигурации",
+                    "No configuration",
                     systemImage: "doc.badge.gearshape",
-                    description: Text(state.errorMessage ?? "Добавьте хотя бы одну вкладку")
+                    description: Text(state.errorMessage ?? "Add at least one tab")
                 )
             }
             if let error = state.errorMessage, state.configuration != nil {
@@ -31,7 +31,7 @@ struct MainPopoverView: View {
             Spacer()
             Button("Reload", systemImage: "arrow.clockwise") { state.reload() }
                 .labelStyle(.iconOnly)
-                .help("Перечитать \(state.configURL.path)")
+                .help("Reload \(state.configURL.path)")
             Button("Quit", systemImage: "power") { NSApplication.shared.terminate(nil) }
                 .labelStyle(.iconOnly)
         }
@@ -39,7 +39,7 @@ struct MainPopoverView: View {
 
     @ViewBuilder
     private func content(_ config: RunnerConfiguration) -> some View {
-        Picker("Вкладка", selection: $state.selectedTabID) {
+        Picker("Tab", selection: $state.selectedTabID) {
             ForEach(config.tabs) { tab in Text(tab.title).tag(Optional(tab.id)) }
         }
         .pickerStyle(.segmented)
@@ -61,7 +61,7 @@ struct MainPopoverView: View {
 
             if state.visibleScripts.isEmpty {
                 Spacer()
-                ContentUnavailableView("Режим не запущен", systemImage: "terminal")
+                ContentUnavailableView("Mode is not running", systemImage: "terminal")
                 Spacer()
             } else {
                 output
@@ -72,18 +72,18 @@ struct MainPopoverView: View {
     private var output: some View {
         VStack(spacing: 6) {
             HStack {
-                Picker("Вывод", selection: $state.selectedOutputID) {
+                Picker("Output", selection: $state.selectedOutputID) {
                     ForEach(state.visibleScripts, id: \.id) { item in
                         Text(item.script.title).tag(Optional(item.id))
                     }
                 }
                 .pickerStyle(.segmented)
-                Button("Очистить") { state.clearSelectedLog() }
+                Button("Clear") { state.clearSelectedLog() }
             }
             if let id = state.selectedOutputID, let log = state.logs[id] {
                 HStack {
                     Circle().fill(log.status?.isRunning == true ? .green : .secondary).frame(width: 7, height: 7)
-                    Text(log.status?.displayText ?? "Не запущен").font(.caption).foregroundStyle(.secondary)
+                    Text(log.status?.displayText ?? "Not running").font(.caption).foregroundStyle(.secondary)
                     Text("· \(log.buffer.count) bytes").font(.caption).foregroundStyle(.tertiary)
                     Spacer()
                 }
