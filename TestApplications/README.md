@@ -1,8 +1,8 @@
 # Test applications
 
-Три независимых Yarn-проекта для ручной и автоматической проверки Script Mode Runner. Сторонних npm-зависимостей нет: сервер использует встроенный модуль Node.js `http`.
+Three independent Yarn projects for manual and automated testing of Script Mode Runner. They have no third-party npm dependencies: the servers use Node.js's built-in `http` module.
 
-Порты:
+Ports:
 
 | Project | `yarn dev:lab` | `yarn dev:mock` | `yarn mock` |
 |---|---:|---:|---:|
@@ -10,9 +10,9 @@
 | Application #2 | 3020 | 3020 | 3025 |
 | Application #3 | 3030 | 3030 | 3035 |
 
-`dev:lab` и `dev:mock` используют один порт намеренно: соответствующие режимы взаимоисключающие, поэтому переключение проверяет корректную остановку предыдущей process group.
+`dev:lab` and `dev:mock` intentionally use the same port. Their modes are mutually exclusive, so switching modes tests that the previous process group stops correctly.
 
-Чтобы использовать fixtures в приложении, запустите его с тестовой конфигурацией:
+To use these fixtures in the app, run it with the test configuration:
 
 ```bash
 SCRIPT_MODE_RUNNER_CONFIG="$PWD/Examples/test-apps.yaml" swift run ScriptModeRunner

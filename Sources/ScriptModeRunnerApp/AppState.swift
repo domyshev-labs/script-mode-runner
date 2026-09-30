@@ -135,12 +135,12 @@ private func runID(tabID: String, modeID: String, scriptID: String) -> String {
 extension ProcessStatus {
     var displayText: String {
         switch self {
-        case .starting: "Запускается"
-        case let .running(pid): "Работает · PID \(pid)"
-        case .stopping: "Останавливается"
-        case let .exited(code): code == 0 ? "Завершён" : "Ошибка · код \(code)"
-        case let .signalled(signal): "Остановлен · сигнал \(signal)"
-        case let .failed(message): "Не запущен · \(message)"
+        case .starting: "Starting"
+        case let .running(pid): "Running · PID \(pid)"
+        case .stopping: "Stopping"
+        case let .exited(code): code == 0 ? "Finished" : "Error · code \(code)"
+        case let .signalled(signal): "Stopped · signal \(signal)"
+        case let .failed(message): "Not running · \(message)"
         }
     }
 
