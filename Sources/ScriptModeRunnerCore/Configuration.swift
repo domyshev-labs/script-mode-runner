@@ -49,7 +49,7 @@ public struct RunnerConfiguration: Codable, Equatable, Sendable {
                     scripts: mode.scripts.map { $0.resolvingRelativePath(relativeTo: baseDirectory) },
                     source: mode.source, cwd: mode.cwd.map { resolvePath($0, relativeTo: baseDirectory) } ?? (mode.source != nil ? baseDirectory.path : nil),
                     environment: mode.environment, runner: mode.runner,
-                    marginLeft: mode.marginLeft, marginRight: mode.marginRight
+                    marginLeft: mode.marginLeft, marginRight: mode.marginRight, align: mode.align
                 )
             })
         })
@@ -68,6 +68,8 @@ public struct RunnerTab: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+public enum ButtonAlignment: String, Codable, Sendable { case left, right }
+
 public struct RunnerMode: Codable, Equatable, Identifiable, Sendable {
     public let id: String
     public let title: String
@@ -79,9 +81,10 @@ public struct RunnerMode: Codable, Equatable, Identifiable, Sendable {
     public let runner: [String]
     public let marginLeft: Double
     public let marginRight: Double
+    public let align: ButtonAlignment
 
     enum CodingKeys: String, CodingKey {
-        case id, title, scripts, source, cwd, environment, runner
+        case id, title, scripts, source, cwd, environment, runner, align
         case onDeactivate = "on_deactivate"
         case marginLeft = "margin_left"
         case marginRight = "margin_right"
@@ -97,13 +100,14 @@ public struct RunnerMode: Codable, Equatable, Identifiable, Sendable {
         environment = try c.decodeIfPresent([String: String].self, forKey: .environment) ?? [:]
         runner = try c.decodeIfPresent([String].self, forKey: .runner) ?? ["yarn", "run"]
         marginLeft = try c.decodeIfPresent(Double.self, forKey: .marginLeft) ?? 0
+        align = try c.decodeIfPresent(ButtonAlignment.self, forKey: .align) ?? .left
         marginRight = try c.decodeIfPresent(Double.self, forKey: .marginRight) ?? 0
         onDeactivate = try c.decodeIfPresent(DeactivationPolicy.self, forKey: .onDeactivate) ?? .init(sigint: true, sigkill: true)
     }
 
     public init(id: String, title: String, onDeactivate: DeactivationPolicy = .init(), scripts: [RunnerScript],
                 source: MenuSource? = nil, cwd: String? = nil, environment: [String: String] = [:],
-                runner: [String] = ["yarn", "run"], marginLeft: Double = 0, marginRight: Double = 0) {
+                runner: [String] = ["yarn", "run"], marginLeft: Double = 0, marginRight: Double = 0, align: ButtonAlignment = .left) {
         self.id = id
         self.title = title
         self.onDeactivate = onDeactivate
@@ -114,6 +118,7 @@ public struct RunnerMode: Codable, Equatable, Identifiable, Sendable {
         self.runner = runner
         self.marginLeft = marginLeft
         self.marginRight = marginRight
+        self.align = align
     }
 }
 

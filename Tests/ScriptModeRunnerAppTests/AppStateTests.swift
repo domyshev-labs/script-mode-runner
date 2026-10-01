@@ -93,7 +93,8 @@ private func waitUntil(_ condition: () -> Bool) async throws {
     state.toggle(button, in: tab)
     try await waitUntil { state.runs.count == 2 && state.logs[state.runs[1].id]?.status == .exited(code: 7) }
     #expect(state.runs[0].id != state.runs[1].id)
-    #expect(state.visibleScripts.count == 2)
+    #expect(state.visibleScripts.count == 1)
+    #expect(state.visibleScripts.first?.id == state.runs.last?.id)
     await state.shutdown()
 }
 
@@ -172,5 +173,50 @@ private func waitUntil(_ condition: () -> Bool) async throws {
     state.toggle(button, in: tab)
     try await waitUntil { state.runs.count == 2 && state.logs.values.allSatisfy { $0.status?.isRunning == false } }
     #expect(state.activity(button, in: tab) == .failed)
+    await state.shutdown()
+}
+
+@MainActor
+@Test func switchingModesScopesLogsAndRestartShowsOnlyLatestConfiguredScripts() async throws {
+    let config = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: config) }
+    try """
+    tabs:
+      - id: test
+        title: Test
+        buttons:
+          - id: lab
+            title: Lab
+            on_deactivate: {sigkill: true}
+            scripts:
+              - {id: dev, title: Dev, executable: /bin/sleep, arguments: [30]}
+          - id: mock
+            title: Mock
+            on_deactivate: {sigkill: true}
+            scripts:
+              - {id: dev, title: Dev, executable: /bin/sleep, arguments: [30]}
+              - {id: backend, title: Backend, executable: /bin/sleep, arguments: [30]}
+    """.write(to: config, atomically: true, encoding: .utf8)
+    let state = AppState(configURL: config)
+    defer { Task { await state.shutdown() } }
+    let tab = try #require(state.selectedTab)
+    state.toggle(tab.buttons[0], in: tab)
+    try await waitUntil { state.activity(tab.buttons[0], in: tab) == .running && state.busyTabs.isEmpty }
+    let firstLabID = try #require(state.selectedOutputID)
+    state.toggle(tab.buttons[1], in: tab)
+    try await waitUntil { state.activity(tab.buttons[1], in: tab) == .running && state.busyTabs.isEmpty }
+    #expect(state.visibleScripts.count == 2)
+    #expect(state.visibleScripts.allSatisfy { $0.buttonID == "mock" })
+    #expect(state.visibleScripts.contains { $0.id == state.selectedOutputID })
+    state.toggle(tab.buttons[0], in: tab)
+    try await waitUntil { state.activity(tab.buttons[0], in: tab) == .running && state.busyTabs.isEmpty }
+    #expect(state.visibleScripts.count == 1)
+    #expect(state.visibleScripts.first?.buttonID == "lab")
+    #expect(state.visibleScripts.first?.id != firstLabID)
+    state.toggle(tab.buttons[0], in: tab)
+    try await waitUntil { state.activity(tab.buttons[0], in: tab) == .idle && state.busyTabs.isEmpty }
+    #expect(state.visibleScripts.count == 1)
+    state.reload()
+    #expect(state.visibleScripts.count == 1)
     await state.shutdown()
 }
