@@ -12,7 +12,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let state = AppState()
         self.state = state
-        NSApplication.shared.setActivationPolicy(.accessory)
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem = item
         if let button = item.button {
@@ -49,11 +48,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startupPopover.close()
         guard let button = statusItem?.button else { return }
         if mainPopover.isShown { mainPopover.performClose(nil) }
-        else {
-            NSApplication.shared.activate(ignoringOtherApps: true)
-            mainPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            mainPopover.contentViewController?.view.window?.makeKey()
+        else { showMainPopover(relativeTo: button) }
+    }
+
+    private func showMainPopover(relativeTo button: NSStatusBarButton) {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        mainPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        mainPopover.contentViewController?.view.window?.makeKey()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        startupTask?.cancel()
+        startupPopover.close()
+        if let button = statusItem?.button, !mainPopover.isShown {
+            showMainPopover(relativeTo: button)
         }
+        // Reopening from Finder or Spotlight should never create a separate window.
+        return false
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -68,10 +79,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-struct ScriptModeRunnerApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+@MainActor
+enum ScriptModeRunnerApp {
+    static func main() {
+        let application = NSApplication.shared
+        let delegate = AppDelegate()
+        application.setActivationPolicy(.accessory)
+        application.delegate = delegate
+        application.mainMenu = makeMainMenu()
+        // NSApplication holds its delegate weakly; retain it for the event loop.
+        withExtendedLifetime(delegate) {
+            application.run()
+        }
+    }
 
-    var body: some Scene {
-        Settings { EmptyView() }
+    private static func makeMainMenu() -> NSMenu {
+        let menu = NSMenu()
+        let appItem = NSMenuItem()
+        let appMenu = NSMenu(title: "Script Mode Runner")
+        appMenu.addItem(withTitle: "Quit Script Mode Runner", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appItem.submenu = appMenu
+        menu.addItem(appItem)
+        let editItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = editMenu
+        menu.addItem(editItem)
+        return menu
     }
 }
