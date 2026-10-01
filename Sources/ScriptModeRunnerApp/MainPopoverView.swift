@@ -78,7 +78,7 @@ struct MainPopoverView: View {
                     .frame(minWidth: geometry.size.width, alignment: .leading)
                     .padding(.vertical, 3)
                 }
-            }.frame(height: 38)
+            }.frame(height: 32)
             if state.visibleScripts.isEmpty {
                 ContentUnavailableView("No runs yet", systemImage: "terminal",
                                        description: Text("Start a mode or choose a command from a menu"))
@@ -117,18 +117,21 @@ struct MainPopoverView: View {
                 Button("Refresh") { state.refreshCatalog(button, in: tab) }.disabled(catalog.loading)
             } label: { buttonLabel(button.title, activity: activity, menu: true) }
             .menuStyle(.borderlessButton)
-            .padding(.horizontal, 8).padding(.vertical, 5)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, 8)
+            .frame(height: 26)
             .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(activity.color, lineWidth: 1.5))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.35), lineWidth: 1))
             .simultaneousGesture(TapGesture().onEnded { state.refreshCatalog(button, in: tab) })
         } else {
             Button { state.toggle(button, in: tab) } label: {
                 buttonLabel(button.title, activity: activity, menu: false)
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 10).padding(.vertical, 6)
+            .padding(.horizontal, 8)
+            .frame(height: 26)
             .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(activity.color, lineWidth: 1.5))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.35), lineWidth: 1))
             .disabled(state.busyTabs.contains(tab.id))
         }
     }
@@ -147,6 +150,8 @@ struct MainPopoverView: View {
             }
             Text(title).lineLimit(1)
         }
+        .font(.system(size: 13))
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var output: some View {
@@ -198,11 +203,5 @@ struct MainPopoverView: View {
         case let .exited(code) where code != 0: .red
         default: .secondary
         }
-    }
-}
-
-extension ButtonActivity {
-    var color: Color {
-        switch self { case .running: .green; case .partial, .transitioning: .orange; case .failed: .red; case .idle: .gray }
     }
 }
