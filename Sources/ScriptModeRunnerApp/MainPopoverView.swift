@@ -55,7 +55,7 @@ struct MainPopoverView: View {
             Text("Script Mode Runner").font(.headline)
             Spacer()
             Button("Reload", systemImage: "arrow.clockwise") { state.reload() }
-                .labelStyle(.iconOnly).help("Reload \(state.configURL.path)")
+                .labelStyle(.iconOnly).help("Reread the configuration and refresh command catalogs.\n\(state.configURL.path)")
             Button("Quit", systemImage: "power") { NSApplication.shared.terminate(nil) }
                 .labelStyle(.iconOnly)
         }
@@ -144,7 +144,7 @@ struct MainPopoverView: View {
                 let stopping = activity == .running || activity == .partial
                 let color: Color = stopping ? .red : .green
                 Image(systemName: stopping ? "stop.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 16.15, weight: .semibold))
+                    .font(.system(size: 13.7275, weight: .semibold))
                     .foregroundStyle(color.gradient)
                     .shadow(color: color.opacity(0.35), radius: 1, y: 1)
             }
