@@ -36,6 +36,8 @@ public actor ProcessSupervisor {
         let pid: pid_t
         let stdout: FileHandle
         let stderr: FileHandle
+        let stdoutReader: OutputReader
+        let stderrReader: OutputReader
     }
 
     private var processes: [String: RunningProcess] = [:]
@@ -93,9 +95,11 @@ public actor ProcessSupervisor {
 
         let stdout = FileHandle(fileDescriptor: stdoutPipe[0], closeOnDealloc: true)
         let stderr = FileHandle(fileDescriptor: stderrPipe[0], closeOnDealloc: true)
-        processes[runID] = RunningProcess(pid: pid, stdout: stdout, stderr: stderr)
-        attach(stdout, runID: runID, stream: .stdout)
-        attach(stderr, runID: runID, stream: .stderr)
+        let stdoutReader = OutputReader(handle: stdout, runID: runID, stream: .stdout, handler: eventHandler)
+        let stderrReader = OutputReader(handle: stderr, runID: runID, stream: .stderr, handler: eventHandler)
+        processes[runID] = RunningProcess(pid: pid, stdout: stdout, stderr: stderr, stdoutReader: stdoutReader, stderrReader: stderrReader)
+        stdout.readabilityHandler = { [weak stdoutReader] _ in stdoutReader?.drain() }
+        stderr.readabilityHandler = { [weak stderrReader] _ in stderrReader?.drain() }
         eventHandler(.status(runID: runID, status: .running(pid: pid)))
         waitForExit(runID: runID, pid: pid)
         return pid
@@ -121,27 +125,35 @@ public actor ProcessSupervisor {
         }
     }
 
-    private func attach(_ handle: FileHandle, runID: String, stream: OutputStream) {
-        let handler = eventHandler
-        handle.readabilityHandler = { file in
-            let data = file.availableData
-            if !data.isEmpty { handler(.output(runID: runID, stream: stream, data: data)) }
-        }
-    }
-
     private func waitForExit(runID: String, pid: pid_t) {
         Task.detached { [weak self] in
             var status: Int32 = 0
-            let result = waitpid(pid, &status, 0)
-            guard result > 0 else { return }
+            var result: pid_t
+            repeat { result = waitpid(pid, &status, 0) } while result < 0 && errno == EINTR
+            guard result > 0 else {
+                let code = errno
+                await self?.waitFailed(runID: runID, code: code)
+                return
+            }
             await self?.didExit(runID: runID, rawStatus: status)
         }
+    }
+
+    private func waitFailed(runID: String, code: Int32) {
+        guard let process = processes.removeValue(forKey: runID) else { return }
+        process.stdout.readabilityHandler = nil
+        process.stderr.readabilityHandler = nil
+        process.stdoutReader.drain()
+        process.stderrReader.drain()
+        eventHandler(.status(runID: runID, status: .failed(message: "Could not observe process exit: " + String(cString: strerror(code)))))
     }
 
     private func didExit(runID: String, rawStatus: Int32) {
         guard let process = processes.removeValue(forKey: runID) else { return }
         process.stdout.readabilityHandler = nil
         process.stderr.readabilityHandler = nil
+        process.stdoutReader.drain()
+        process.stderrReader.drain()
         let finalStatus: ProcessStatus
         let termination = rawStatus & 0x7f
         if termination == 0 {
@@ -157,4 +169,30 @@ private func withCStringArray<R>(_ strings: [String], body: ([UnsafeMutablePoint
     let pointers = strings.map { strdup($0) }
     defer { pointers.forEach { free($0) } }
     return body(pointers + [nil])
+}
+
+private final class OutputReader: @unchecked Sendable {
+    private let lock = NSLock()
+    private let handle: FileHandle
+    private let runID: String
+    private let stream: OutputStream
+    private let handler: ProcessSupervisor.EventHandler
+
+    init(handle: FileHandle, runID: String, stream: OutputStream, handler: @escaping ProcessSupervisor.EventHandler) {
+        self.handle = handle; self.runID = runID; self.stream = stream; self.handler = handler
+        let flags = fcntl(handle.fileDescriptor, F_GETFL)
+        _ = fcntl(handle.fileDescriptor, F_SETFL, flags | O_NONBLOCK)
+    }
+
+    func drain() {
+        lock.withLock {
+            var bytes = [UInt8](repeating: 0, count: 8192)
+            while true {
+                let count = read(handle.fileDescriptor, &bytes, bytes.count)
+                if count > 0 { handler(.output(runID: runID, stream: stream, data: Data(bytes.prefix(count)))) }
+                else if count < 0 && errno == EINTR { continue }
+                else { break }
+            }
+        }
+    }
 }

@@ -23,6 +23,10 @@ public struct ByteRingBuffer: Sendable {
         data.removeAll(keepingCapacity: true)
     }
 
+    public mutating func trim(to size: Int) {
+        if data.count > max(0, size) { data = Data(data.suffix(max(0, size))) }
+    }
+
     public var string: String {
         String(decoding: data, as: UTF8.self)
     }
