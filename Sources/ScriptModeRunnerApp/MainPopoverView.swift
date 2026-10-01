@@ -68,20 +68,30 @@ struct MainPopoverView: View {
         }
         .pickerStyle(.segmented)
         if let tab = state.selectedTab {
-            ScrollView(.horizontal) {
-                HStack(spacing: 8) {
-                    ForEach(tab.buttons) { button in
-                        buttonView(button, tab: tab)
-                            .padding(.leading, button.marginLeft)
-                            .padding(.trailing, button.marginRight)
+            GeometryReader { geometry in
+                ScrollView(.horizontal) {
+                    HStack(spacing: 8) {
+                        alignedButtons(tab, alignment: .left)
+                        Spacer(minLength: 8)
+                        alignedButtons(tab, alignment: .right)
                     }
-                }.padding(.vertical, 2)
-            }.fixedSize(horizontal: false, vertical: true)
+                    .frame(minWidth: geometry.size.width, alignment: .leading)
+                    .padding(.vertical, 3)
+                }
+            }.frame(height: 38)
             if state.visibleScripts.isEmpty {
                 ContentUnavailableView("No runs yet", systemImage: "terminal",
                                        description: Text("Start a mode or choose a command from a menu"))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else { output }
+        }
+    }
+
+    private func alignedButtons(_ tab: RunnerTab, alignment: ButtonAlignment) -> some View {
+        ForEach(tab.buttons.filter { $0.align == alignment }) { button in
+            buttonView(button, tab: tab)
+                .padding(.leading, button.marginLeft)
+                .padding(.trailing, button.marginRight)
         }
     }
 
@@ -108,14 +118,17 @@ struct MainPopoverView: View {
             } label: { buttonLabel(button.title, activity: activity, menu: true) }
             .menuStyle(.borderlessButton)
             .padding(.horizontal, 8).padding(.vertical, 5)
-            .background(activity.color.opacity(0.18), in: RoundedRectangle(cornerRadius: 6))
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(activity.color, lineWidth: 1.5))
             .simultaneousGesture(TapGesture().onEnded { state.refreshCatalog(button, in: tab) })
         } else {
             Button { state.toggle(button, in: tab) } label: {
                 buttonLabel(button.title, activity: activity, menu: false)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(activity.color)
+            .buttonStyle(.plain)
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(activity.color, lineWidth: 1.5))
             .disabled(state.busyTabs.contains(tab.id))
         }
     }
@@ -123,7 +136,15 @@ struct MainPopoverView: View {
     private func buttonLabel(_ title: String, activity: ButtonActivity, menu: Bool) -> some View {
         HStack(spacing: 5) {
             if activity == .transitioning { ProgressView().controlSize(.mini) }
-            else { Image(systemName: menu ? "list.bullet" : (activity == .running || activity == .partial ? "stop.fill" : "play.fill")) }
+            else if menu { Image(systemName: "list.bullet").foregroundStyle(.secondary) }
+            else {
+                let stopping = activity == .running || activity == .partial
+                let color: Color = stopping ? .red : .green
+                Image(systemName: stopping ? "stop.circle.fill" : "play.circle.fill")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(color.gradient)
+                    .shadow(color: color.opacity(0.35), radius: 1, y: 1)
+            }
             Text(title).lineLimit(1)
         }
     }

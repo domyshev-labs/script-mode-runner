@@ -76,3 +76,25 @@ import Testing
     #expect(spec.executable == "/bin/bash")
     #expect(spec.arguments == ["-lc", "echo hello"])
 }
+
+@Test func buttonAlignmentDefaultsLeftAndSurvivesPathResolution() throws {
+    let yaml = """
+    tabs:
+      - id: dev
+        title: Dev
+        buttons:
+          - id: lab
+            title: Lab
+            scripts: [{id: lab, title: Lab, command: echo lab}]
+          - id: seeds
+            title: Seeds
+            align: right
+            source: {type: json_file, path: seeds.json}
+    """
+    let url = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try yaml.write(to: url, atomically: true, encoding: .utf8)
+    defer { try? FileManager.default.removeItem(at: url) }
+    let config = try ConfigurationLoader().load(from: url)
+    #expect(config.tabs[0].buttons[0].align == .left)
+    #expect(config.tabs[0].buttons[1].align == .right)
+}

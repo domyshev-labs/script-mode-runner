@@ -17,6 +17,7 @@ struct ScriptRun: Identifiable {
     let policy: DeactivationPolicy
     let isMenu: Bool
     let isSeed: Bool
+    let contextModeID: String?
     var requestedStop = false
 }
 
@@ -34,6 +35,7 @@ final class AppState: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published var selectedTabID: String? { didSet { selectVisibleOutput() } }
     @Published var selectedOutputID: String?
+    @Published private(set) var viewedModes: [String: String] = [:]
     @Published private(set) var activeModes: [String: String] = [:]
     @Published private(set) var logs: [String: ScriptLog] = [:]
     @Published private(set) var runs: [ScriptRun] = []
@@ -55,7 +57,13 @@ final class AppState: ObservableObject {
     }
 
     var selectedTab: RunnerTab? { configuration?.tabs.first { $0.id == selectedTabID } }
-    var visibleScripts: [ScriptRun] { runs.filter { $0.tabID == selectedTabID } }
+    var visibleScripts: [ScriptRun] {
+        let context = selectedTabID.flatMap { viewedModes[$0] }
+        let candidates = runs.filter { $0.tabID == selectedTabID && $0.contextModeID == context }
+        // A configured script owns one visible log; restarting replaces its displayed run.
+        var seen = Set<String>()
+        return candidates.reversed().filter { seen.insert($0.isMenu ? $0.id : "\($0.buttonID)/\($0.script.id)").inserted }.reversed()
+    }
     var selectedRun: ScriptRun? { runs.first { $0.id == selectedOutputID } }
 
     func catalogKey(_ button: RunnerMode, tab: RunnerTab) -> String { "\(tab.id)/\(button.id)" }
@@ -138,6 +146,8 @@ final class AppState: ObservableObject {
                     errorMessage = "The previous mode is still stopping. Stop its processes before starting another mode."
                     return
                 }
+                viewedModes[tab.id] = mode.id
+                selectVisibleOutput()
                 activeModes[tab.id] = mode.id
                 let batchID = UUID().uuidString
                 for script in mode.scripts { await start(script, button: mode, tab: tab, batchID: batchID) }
@@ -160,9 +170,9 @@ final class AppState: ObservableObject {
 
     private func reserve(_ script: RunnerScript, button: RunnerMode, tab: RunnerTab, isMenu: Bool, batchID: String? = nil) -> String {
         let id = UUID().uuidString
-        runs.append(ScriptRun(id: id, tabID: tab.id, batchID: batchID ?? id, buttonID: button.id, script: script, policy: button.onDeactivate, isMenu: isMenu, isSeed: isMenu && button.source?.type != .packageScripts))
+        runs.append(ScriptRun(id: id, tabID: tab.id, batchID: batchID ?? id, buttonID: button.id, script: script, policy: button.onDeactivate, isMenu: isMenu, isSeed: isMenu && button.source?.type != .packageScripts, contextModeID: isMenu ? viewedModes[tab.id] : button.id))
         logs[id] = ScriptLog(status: .starting)
-        selectedOutputID = id
+        if selectedTabID == tab.id { selectedOutputID = id }
         pruneHistory()
         return id
     }

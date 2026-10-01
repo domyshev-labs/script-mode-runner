@@ -37,6 +37,10 @@ mkdir -p "${CONTENTS_DIRECTORY}/MacOS" "${CONTENTS_DIRECTORY}/Resources"
 install -m 755 "${BIN_DIRECTORY}/ScriptModeRunner" "${CONTENTS_DIRECTORY}/MacOS/ScriptModeRunner"
 install -m 644 "${PROJECT_DIRECTORY}/Packaging/Info.plist" "${CONTENTS_DIRECTORY}/Info.plist"
 
+ICONSET_DIRECTORY="${BIN_DIRECTORY}/AppIcon.iconset"
+DEVELOPER_DIR="${DEVELOPER_DIRECTORY}" xcrun swift "${PROJECT_DIRECTORY}/Scripts/generate-icon.swift" "${ICONSET_DIRECTORY}"
+iconutil -c icns "${ICONSET_DIRECTORY}" -o "${CONTENTS_DIRECTORY}/Resources/AppIcon.icns"
+
 codesign --force --deep --sign - "${APP_BUNDLE}"
 
 print "Installed: ${APP_BUNDLE}"
