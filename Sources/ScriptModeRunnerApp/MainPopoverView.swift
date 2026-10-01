@@ -144,7 +144,7 @@ struct MainPopoverView: View {
                 let stopping = activity == .running || activity == .partial
                 let color: Color = stopping ? .red : .green
                 Image(systemName: stopping ? "stop.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 19, weight: .semibold))
+                    .font(.system(size: 16.15, weight: .semibold))
                     .foregroundStyle(color.gradient)
                     .shadow(color: color.opacity(0.35), radius: 1, y: 1)
             }

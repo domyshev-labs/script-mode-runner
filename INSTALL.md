@@ -131,4 +131,4 @@ Pull or copy the newer source tree and rerun:
 ./Scripts/install.sh
 ```
 
-The installer replaces the executable and metadata inside the existing local app bundle. It does not overwrite the user's YAML configuration.
+The installer replaces the executable, icon, and metadata inside the existing local app bundle. It refreshes Launch Services registration and Spotlight metadata so in-place updates can be discovered. Spotlight may retain its displayed icon until the search is reopened. It does not overwrite the user's YAML configuration.

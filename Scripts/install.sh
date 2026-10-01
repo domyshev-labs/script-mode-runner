@@ -43,6 +43,14 @@ iconutil -c icns "${ICONSET_DIRECTORY}" -o "${CONTENTS_DIRECTORY}/Resources/AppI
 
 codesign --force --deep --sign - "${APP_BUNDLE}"
 
+# In-place bundle updates otherwise leave Finder/Spotlight using cached metadata.
+touch "${APP_BUNDLE}"
+LAUNCH_SERVICES_REGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [[ -x "${LAUNCH_SERVICES_REGISTER}" ]]; then
+    "${LAUNCH_SERVICES_REGISTER}" -f "${APP_BUNDLE}" || print -u2 "Could not refresh Launch Services registration."
+fi
+mdimport "${APP_BUNDLE}" || print -u2 "Could not refresh Spotlight metadata."
+
 print "Installed: ${APP_BUNDLE}"
 print "Configuration: ${HOME}/.config/script-mode-runner/config.yaml"
 print "Open the app from Finder or run:"
