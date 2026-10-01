@@ -181,7 +181,11 @@ public struct RunnerScript: Codable, Equatable, Identifiable, Sendable {
     public func launchSpec(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> LaunchSpec {
         let directory = cwd.map { expandTilde($0, homeDirectory: homeDirectory) }
         if let command {
-            return LaunchSpec(executable: shell ?? "/bin/zsh", arguments: ["-lc", command], cwd: directory, environment: environment)
+            let commandShell = shell ?? "/bin/zsh"
+            // Tools managed by NVM and similar managers are often initialized in .zshrc.
+            // Finder does not provide the PATH inherited when launching from Terminal.
+            let flags = URL(fileURLWithPath: commandShell).lastPathComponent == "zsh" ? "-ilc" : "-lc"
+            return LaunchSpec(executable: commandShell, arguments: [flags, command], cwd: directory, environment: environment)
         }
         return LaunchSpec(executable: executable ?? "", arguments: arguments, cwd: directory, environment: environment)
     }

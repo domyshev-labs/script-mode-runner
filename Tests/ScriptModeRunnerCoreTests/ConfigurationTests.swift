@@ -43,3 +43,36 @@ import Testing
         try config.validated()
     }
 }
+
+@Test func shellCommandFindsToolsInitializedInZshrc() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    let bin = directory.appending(path: "bin")
+    try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try "export PATH=\"$ZDOTDIR/bin:$PATH\"\n".write(
+        to: directory.appending(path: ".zshrc"), atomically: true, encoding: .utf8
+    )
+    let tool = bin.appending(path: "runner-test-tool")
+    try "#!/bin/sh\nprintf tool-found\n".write(to: tool, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tool.path)
+
+    let spec = RunnerScript(id: "tool", title: "Tool", command: "runner-test-tool").launchSpec()
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: spec.executable)
+    process.arguments = spec.arguments
+    process.environment = ["HOME": directory.path, "ZDOTDIR": directory.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+    let output = Pipe()
+    process.standardOutput = output
+    try process.run()
+    let data = output.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+
+    #expect(process.terminationStatus == 0)
+    #expect(String(decoding: data, as: UTF8.self) == "tool-found")
+}
+
+@Test func customNonZshShellKeepsLoginCommandMode() {
+    let spec = RunnerScript(id: "bash", title: "Bash", command: "echo hello", shell: "/bin/bash").launchSpec()
+    #expect(spec.executable == "/bin/bash")
+    #expect(spec.arguments == ["-lc", "echo hello"])
+}

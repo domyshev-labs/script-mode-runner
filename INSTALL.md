@@ -98,7 +98,7 @@ cp Examples/config.yaml ~/.config/script-mode-runner/config.yaml
 
 Edit every `cwd`, executable, command, and environment value for the new Mac. Relative `cwd` values are resolved from the directory containing the YAML file.
 
-Applications launched from Finder may have a smaller `PATH` than an interactive shell. Prefer absolute executable paths or a shell command that initializes the required environment when a tool cannot be found.
+Commands use an interactive login zsh (`zsh -ilc`) by default, loading `.zprofile` and `.zshrc` so tools initialized there (such as Node and Yarn through NVM) are available when the app starts from Finder. Startup files also run their other commands and may print output. Custom shells other than zsh use `-lc`. Direct `executable` entries inherit the app's environment; use absolute executable paths and configure `PATH` when needed.
 
 ## Running the included test applications
 
