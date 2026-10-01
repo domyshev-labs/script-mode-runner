@@ -51,13 +51,14 @@ HTTP and HTTPS links in logs open with a normal left click in the default
 browser. The browser controls whether to use a tab or window. ANSI color and
 terminal hyperlink control sequences are removed from the displayed text.
 
-Mode button borders are green while all their processes are running, orange while
-starting/stopping or when only some processes remain, and red after an
-unexpected failure. Buttons keep their normal background; Play is green and Stop is red. A user stop returns the border to its normal color. This
-tracks foreground processes launched by the app, not HTTP readiness, external
-processes, or detached daemons. Commands that launch a server should keep it in
-the foreground. Existing mode buttons remain mutually exclusive within a
-project tab; menu commands run independently.
+Mode and menu buttons use the same compact height and a neutral border. Menu
+buttons size to their label; longer command titles appear only in the open menu.
+Play is green and Stop is red. A spinner indicates starting or stopping; process
+status and failures remain visible in the selected log. This tracks foreground
+processes launched by the app, not HTTP readiness, external processes, or detached
+daemons. Commands that launch a server should keep it in the foreground. Existing
+mode buttons remain mutually exclusive within a project tab; menu commands run
+independently.
 
 ### package.json scripts
 
