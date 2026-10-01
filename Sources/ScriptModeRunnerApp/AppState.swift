@@ -8,146 +8,269 @@ struct ScriptLog {
     var status: ProcessStatus?
 }
 
+struct ScriptRun: Identifiable {
+    let id: String
+    let tabID: String
+    let batchID: String
+    let buttonID: String
+    let script: RunnerScript
+    let policy: DeactivationPolicy
+    let isMenu: Bool
+    let isSeed: Bool
+    var requestedStop = false
+}
+
+enum ButtonActivity { case idle, transitioning, running, partial, failed }
+
+struct CatalogState {
+    var items: [MenuItem] = []
+    var loading = false
+    var error: String?
+}
+
 @MainActor
 final class AppState: ObservableObject {
     @Published private(set) var configuration: RunnerConfiguration?
     @Published private(set) var errorMessage: String?
-    @Published var selectedTabID: String?
+    @Published var selectedTabID: String? { didSet { selectVisibleOutput() } }
     @Published var selectedOutputID: String?
     @Published private(set) var activeModes: [String: String] = [:]
     @Published private(set) var logs: [String: ScriptLog] = [:]
+    @Published private(set) var runs: [ScriptRun] = []
+    @Published private(set) var catalogs: [String: CatalogState] = [:]
+    @Published private(set) var busyTabs: Set<String> = []
 
     let configURL: URL
     private let relay: EventRelay
     private let supervisor: ProcessSupervisor
+    private var catalogTasks: [String: Task<Void, Never>] = [:]
 
     init(configURL: URL = ConfigurationLoader.defaultURL) {
         self.configURL = configURL
         let relay = EventRelay()
         self.relay = relay
-        self.supervisor = ProcessSupervisor { event in relay.receive(event) }
+        supervisor = ProcessSupervisor { event in relay.receive(event) }
         relay.owner = self
         reload()
     }
 
-    var selectedTab: RunnerTab? {
-        configuration?.tabs.first { $0.id == selectedTabID }
-    }
+    var selectedTab: RunnerTab? { configuration?.tabs.first { $0.id == selectedTabID } }
+    var visibleScripts: [ScriptRun] { runs.filter { $0.tabID == selectedTabID } }
+    var selectedRun: ScriptRun? { runs.first { $0.id == selectedOutputID } }
 
-    var visibleScripts: [(id: String, script: RunnerScript)] {
-        guard let tab = selectedTab, let modeID = activeModes[tab.id],
-              let mode = tab.buttons.first(where: { $0.id == modeID }) else { return [] }
-        return mode.scripts.map { (runID(tabID: tab.id, modeID: mode.id, scriptID: $0.id), $0) }
-    }
+    func catalogKey(_ button: RunnerMode, tab: RunnerTab) -> String { "\(tab.id)/\(button.id)" }
 
     func reload() {
         do {
             let loaded = try ConfigurationLoader().load(from: configURL)
-            configuration = loaded
+            // Keep removed tabs reachable while they still own logs or processes.
+            let retained = configuration?.tabs.filter { old in
+                !loaded.tabs.contains { $0.id == old.id } && runs.contains { $0.tabID == old.id }
+            } ?? []
+            configuration = RunnerConfiguration(tabs: loaded.tabs + retained)
             errorMessage = nil
-            if selectedTabID.flatMap({ id in loaded.tabs.first { $0.id == id } }) == nil {
-                selectedTabID = loaded.tabs.first?.id
+            if !configuration!.tabs.contains(where: { $0.id == selectedTabID }) { selectedTabID = configuration?.tabs.first?.id }
+            for task in catalogTasks.values { task.cancel() }
+            catalogTasks = [:]
+            catalogs = [:]
+            for tab in configuration!.tabs {
+                for button in tab.buttons where button.source != nil { refreshCatalog(button, in: tab) }
             }
-        } catch {
-            errorMessage = "\(configURL.path)\n\(error.localizedDescription)"
+            selectVisibleOutput()
+        } catch { errorMessage = "\(configURL.path)\n\(error.localizedDescription)" }
+    }
+
+    func refreshCatalog(_ button: RunnerMode, in tab: RunnerTab) {
+        let key = catalogKey(button, tab: tab)
+        guard catalogTasks[key] == nil else { return }
+        catalogs[key] = CatalogState(items: catalogs[key]?.items ?? [], loading: true)
+        catalogTasks[key] = Task { [weak self] in
+            guard let self else { return }
+            defer { if !Task.isCancelled { catalogTasks[key] = nil } }
+            do {
+                let items = try await MenuLoader().load(button, relativeTo: configURL.deletingLastPathComponent())
+                guard !Task.isCancelled else { return }
+                catalogs[key] = CatalogState(items: items)
+            } catch {
+                guard !Task.isCancelled else { return }
+                catalogs[key] = CatalogState(error: error.localizedDescription)
+            }
         }
+    }
+
+    func activity(_ button: RunnerMode, in tab: RunnerTab) -> ButtonActivity {
+        let history = runs.filter { $0.tabID == tab.id && $0.buttonID == button.id }
+        let relevant = button.source != nil ? history : history.filter { $0.batchID == history.last?.batchID }
+        if relevant.contains(where: { isTransitioning(logs[$0.id]?.status) }) { return .transitioning }
+        let running = relevant.filter { if case .running = logs[$0.id]?.status { return true }; return false }
+        if !running.isEmpty {
+            if button.source != nil { return .running }
+            return running.count == button.scripts.count ? .running : .partial
+        }
+        let completed = button.source != nil ? Array(relevant.suffix(1)) : relevant
+        if completed.contains(where: { run in
+            guard !run.requestedStop else { return false }
+            switch logs[run.id]?.status {
+            case .failed, .signalled: return true
+            case let .exited(code) where code != 0: return true
+            default: return false
+            }
+        }) { return .failed }
+        return .idle
     }
 
     func toggle(_ mode: RunnerMode, in tab: RunnerTab) {
+        guard !busyTabs.contains(tab.id) else { return }
+        busyTabs.insert(tab.id)
         Task {
-            if activeModes[tab.id] == mode.id {
-                await deactivate(mode, in: tab)
+            defer { busyTabs.remove(tab.id) }
+            let live = runs.filter { $0.tabID == tab.id && !$0.isMenu && logs[$0.id]?.status?.isRunning == true }
+            let same = live.filter { $0.buttonID == mode.id }
+            if !same.isEmpty {
+                for run in same { await stop(run.id) }
                 activeModes[tab.id] = nil
             } else {
-                if let oldID = activeModes[tab.id], let old = tab.buttons.first(where: { $0.id == oldID }) {
-                    await deactivate(old, in: tab)
+                for run in live { await stop(run.id) }
+                for _ in 0..<100 where live.contains(where: { logs[$0.id]?.status?.isRunning == true }) {
+                    try? await Task.sleep(for: .milliseconds(20))
+                }
+                guard !live.contains(where: { logs[$0.id]?.status?.isRunning == true }) else {
+                    errorMessage = "The previous mode is still stopping. Stop its processes before starting another mode."
+                    return
                 }
                 activeModes[tab.id] = mode.id
-                await activate(mode, in: tab)
+                let batchID = UUID().uuidString
+                for script in mode.scripts { await start(script, button: mode, tab: tab, batchID: batchID) }
             }
         }
+    }
+
+    func seedIsRunning(_ button: RunnerMode) -> Bool {
+        guard button.source?.type != .packageScripts else { return false }
+        return runs.contains { $0.isSeed && $0.script.cwd == button.cwd && logs[$0.id]?.status?.isRunning == true }
+    }
+
+    func launch(_ item: MenuItem, button: RunnerMode, tab: RunnerTab, parameterValue: String? = nil) {
+        guard !seedIsRunning(button) else { return }
+        // Reserve the run synchronously to prevent double-clicks from racing.
+        let script = item.script(for: button, parameterValue: parameterValue)
+        let id = reserve(script, button: button, tab: tab, isMenu: true)
+        Task { await execute(id, script: script) }
+    }
+
+    private func reserve(_ script: RunnerScript, button: RunnerMode, tab: RunnerTab, isMenu: Bool, batchID: String? = nil) -> String {
+        let id = UUID().uuidString
+        runs.append(ScriptRun(id: id, tabID: tab.id, batchID: batchID ?? id, buttonID: button.id, script: script, policy: button.onDeactivate, isMenu: isMenu, isSeed: isMenu && button.source?.type != .packageScripts))
+        logs[id] = ScriptLog(status: .starting)
+        selectedOutputID = id
+        pruneHistory()
+        return id
+    }
+
+    private func start(_ script: RunnerScript, button: RunnerMode, tab: RunnerTab, batchID: String) async {
+        let id = reserve(script, button: button, tab: tab, isMenu: false, batchID: batchID)
+        await execute(id, script: script)
+    }
+
+    private func execute(_ id: String, script: RunnerScript) async {
+        do { try await supervisor.start(runID: id, spec: script.launchSpec()) }
+        catch { logs[id]?.status = .failed(message: error.localizedDescription) }
+    }
+
+    func stop(_ id: String) async {
+        guard let index = runs.firstIndex(where: { $0.id == id }), logs[id]?.status?.isRunning == true else { return }
+        runs[index].requestedStop = true
+        let configured = runs[index].policy
+        let policy = configured.sigint || configured.sigkill ? configured : .init(sigint: true, sigkill: true, timeout: .seconds(2))
+        await supervisor.stop(runID: id, policy: policy)
+    }
+
+    func stopSelected() { if let id = selectedOutputID { Task { await stop(id) } } }
+
+    func close(_ id: String) {
+        guard logs[id]?.status?.isRunning != true else { return }
+        runs.removeAll { $0.id == id }
+        logs[id] = nil
+        selectVisibleOutput()
     }
 
     func clearSelectedLog() {
-        guard let id = selectedOutputID, var log = logs[id] else { return }
-        log.buffer.removeAll()
-        logs[id] = log
+        guard let id = selectedOutputID else { return }
+        logs[id]?.buffer.removeAll()
     }
 
     func shutdown() async {
+        for task in catalogTasks.values { task.cancel() }
+        let tasks = Array(catalogTasks.values)
+        for task in tasks { await task.value }
         await supervisor.stopAll()
     }
 
-    private func activate(_ mode: RunnerMode, in tab: RunnerTab) async {
-        for (index, script) in mode.scripts.enumerated() {
-            let id = runID(tabID: tab.id, modeID: mode.id, scriptID: script.id)
-            if index == 0 { selectedOutputID = id }
-            if logs[id]?.status?.isRunning == true {
-                continue
-            }
-            logs[id] = ScriptLog()
-            do {
-                try await supervisor.start(runID: id, spec: script.launchSpec())
-            } catch {
-                logs[id]?.status = .failed(message: error.localizedDescription)
-            }
-        }
+    private func selectVisibleOutput() {
+        if !visibleScripts.contains(where: { $0.id == selectedOutputID }) { selectedOutputID = visibleScripts.last?.id }
     }
 
-    private func deactivate(_ mode: RunnerMode, in tab: RunnerTab) async {
-        await withTaskGroup(of: Void.self) { group in
-            for script in mode.scripts {
-                let id = runID(tabID: tab.id, modeID: mode.id, scriptID: script.id)
-                group.addTask { await self.supervisor.stop(runID: id, policy: mode.onDeactivate) }
-            }
+    private func pruneHistory() {
+        for tabID in Set(runs.map(\.tabID)) {
+            let finished = runs.filter { $0.tabID == tabID && logs[$0.id]?.status?.isRunning != true && $0.id != selectedOutputID }
+            for run in finished.prefix(max(0, finished.count - 20)) { close(run.id) }
+        }
+        let budget = 100 * 1024 * 1024
+        if logs.values.reduce(0, { $0 + $1.buffer.count }) > budget {
+            let limit = budget / max(1, logs.count)
+            for id in Array(logs.keys) { logs[id]?.buffer.trim(to: limit) }
         }
     }
 
     fileprivate func receive(_ event: ProcessEvent) {
         switch event {
         case let .output(id, stream, data):
-            var log = logs[id] ?? ScriptLog()
-            if stream == .stderr {
-                log.buffer.append(Data("[stderr] ".utf8))
-            }
-            log.buffer.append(data)
-            logs[id] = log
+            guard logs[id] != nil else { return }
+            if stream == .stderr { logs[id]?.buffer.append(Data("[stderr] ".utf8)) }
+            logs[id]?.buffer.append(data)
         case let .status(id, status):
-            var log = logs[id] ?? ScriptLog()
-            log.status = status
-            logs[id] = log
+            guard logs[id] != nil else { return }
+            logs[id]?.status = status
+            if !status.isRunning, let run = runs.first(where: { $0.id == id }), !run.isMenu,
+               !runs.contains(where: { $0.tabID == run.tabID && !$0.isMenu && logs[$0.id]?.status?.isRunning == true }) {
+                activeModes[run.tabID] = nil
+            }
         }
+        pruneHistory()
     }
 }
 
+// One stream preserves event ordering across output and exit notifications.
 private final class EventRelay: @unchecked Sendable {
     weak var owner: AppState?
-
-    func receive(_ event: ProcessEvent) {
-        Task { @MainActor [weak self] in self?.owner?.receive(event) }
+    private let continuation: AsyncStream<ProcessEvent>.Continuation
+    init() {
+        let pair = AsyncStream<ProcessEvent>.makeStream()
+        continuation = pair.continuation
+        Task { @MainActor [weak self] in
+            for await event in pair.stream { self?.owner?.receive(event) }
+        }
     }
+    deinit { continuation.finish() }
+    func receive(_ event: ProcessEvent) { continuation.yield(event) }
 }
 
-private func runID(tabID: String, modeID: String, scriptID: String) -> String {
-    "\(tabID)/\(modeID)/\(scriptID)"
+private func isTransitioning(_ status: ProcessStatus?) -> Bool {
+    switch status { case .starting, .stopping: true; default: false }
 }
 
 extension ProcessStatus {
     var displayText: String {
         switch self {
-        case .starting: "Запускается"
-        case let .running(pid): "Работает · PID \(pid)"
-        case .stopping: "Останавливается"
-        case let .exited(code): code == 0 ? "Завершён" : "Ошибка · код \(code)"
-        case let .signalled(signal): "Остановлен · сигнал \(signal)"
-        case let .failed(message): "Не запущен · \(message)"
+        case .starting: "Starting"
+        case let .running(pid): "Running · PID \(pid)"
+        case .stopping: "Stopping"
+        case let .exited(code): code == 0 ? "Finished" : "Error · code \(code)"
+        case let .signalled(signal): "Stopped · signal \(signal)"
+        case let .failed(message): "Not running · \(message)"
         }
     }
-
     var isRunning: Bool {
-        switch self {
-        case .starting, .running, .stopping: true
-        default: false
-        }
+        switch self { case .starting, .running, .stopping: true; default: false }
     }
 }

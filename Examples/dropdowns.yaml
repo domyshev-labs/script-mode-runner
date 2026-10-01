@@ -1,0 +1,19 @@
+tabs:
+  - id: demo
+    title: Demo
+    buttons:
+      - id: scripts
+        title: Scripts
+        cwd: ../TestApplications/application-1
+        runner: [yarn, run]
+        margin_right: 16
+        source:
+          type: package_scripts
+          path: package.json
+      - id: seeds
+        title: Seeds
+        cwd: ../TestApplications
+        runner: [node, seed-demo.mjs]
+        source:
+          type: json_file
+          path: seeds.json

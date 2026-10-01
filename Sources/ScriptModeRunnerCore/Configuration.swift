@@ -12,6 +12,24 @@ public struct RunnerConfiguration: Codable, Equatable, Sendable {
         for tab in tabs {
             try validateUnique(tab.buttons.map(\.id), kind: "mode in tab '\(tab.id)'")
             for mode in tab.buttons {
+                guard mode.marginLeft.isFinite, mode.marginRight.isFinite, mode.marginLeft >= 0, mode.marginRight >= 0 else {
+                    throw ConfigurationError.invalidScript(id: mode.id, reason: "margins must be finite nonnegative numbers")
+                }
+                guard (mode.source != nil) != !mode.scripts.isEmpty else {
+                    throw ConfigurationError.invalidScript(id: mode.id, reason: "specify either scripts or source")
+                }
+                if let source = mode.source {
+                    try source.validate(id: mode.id)
+                    guard !mode.runner.isEmpty, !mode.runner[0].isEmpty else {
+                        throw ConfigurationError.invalidScript(id: mode.id, reason: "runner requires an executable")
+                    }
+                    if let cwd = mode.cwd {
+                        var directory: ObjCBool = false
+                        guard fileManager.fileExists(atPath: (cwd as NSString).expandingTildeInPath, isDirectory: &directory), directory.boolValue else {
+                            throw ConfigurationError.invalidScript(id: mode.id, reason: "working directory does not exist: \(cwd)")
+                        }
+                    }
+                }
                 try validateUnique(mode.scripts.map(\.id), kind: "script in mode '\(mode.id)'")
                 for script in mode.scripts {
                     try script.validate(fileManager: fileManager)
@@ -28,7 +46,10 @@ public struct RunnerConfiguration: Codable, Equatable, Sendable {
                     id: mode.id,
                     title: mode.title,
                     onDeactivate: mode.onDeactivate,
-                    scripts: mode.scripts.map { $0.resolvingRelativePath(relativeTo: baseDirectory) }
+                    scripts: mode.scripts.map { $0.resolvingRelativePath(relativeTo: baseDirectory) },
+                    source: mode.source, cwd: mode.cwd.map { resolvePath($0, relativeTo: baseDirectory) } ?? (mode.source != nil ? baseDirectory.path : nil),
+                    environment: mode.environment, runner: mode.runner,
+                    marginLeft: mode.marginLeft, marginRight: mode.marginRight
                 )
             })
         })
@@ -52,26 +73,57 @@ public struct RunnerMode: Codable, Equatable, Identifiable, Sendable {
     public let title: String
     public let onDeactivate: DeactivationPolicy
     public let scripts: [RunnerScript]
+    public let source: MenuSource?
+    public let cwd: String?
+    public let environment: [String: String]
+    public let runner: [String]
+    public let marginLeft: Double
+    public let marginRight: Double
 
     enum CodingKeys: String, CodingKey {
-        case id, title, scripts
+        case id, title, scripts, source, cwd, environment, runner
         case onDeactivate = "on_deactivate"
+        case marginLeft = "margin_left"
+        case marginRight = "margin_right"
     }
 
     public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(String.self, forKey: .id)
-        title = try container.decode(String.self, forKey: .title)
-        scripts = try container.decode([RunnerScript].self, forKey: .scripts)
-        onDeactivate = try container.decodeIfPresent(DeactivationPolicy.self, forKey: .onDeactivate) ?? .init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        scripts = try c.decodeIfPresent([RunnerScript].self, forKey: .scripts) ?? []
+        source = try c.decodeIfPresent(MenuSource.self, forKey: .source)
+        cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
+        environment = try c.decodeIfPresent([String: String].self, forKey: .environment) ?? [:]
+        runner = try c.decodeIfPresent([String].self, forKey: .runner) ?? ["yarn", "run"]
+        marginLeft = try c.decodeIfPresent(Double.self, forKey: .marginLeft) ?? 0
+        marginRight = try c.decodeIfPresent(Double.self, forKey: .marginRight) ?? 0
+        onDeactivate = try c.decodeIfPresent(DeactivationPolicy.self, forKey: .onDeactivate) ?? .init(sigint: true, sigkill: true)
     }
 
-    public init(id: String, title: String, onDeactivate: DeactivationPolicy = .init(), scripts: [RunnerScript]) {
+    public init(id: String, title: String, onDeactivate: DeactivationPolicy = .init(), scripts: [RunnerScript],
+                source: MenuSource? = nil, cwd: String? = nil, environment: [String: String] = [:],
+                runner: [String] = ["yarn", "run"], marginLeft: Double = 0, marginRight: Double = 0) {
         self.id = id
         self.title = title
         self.onDeactivate = onDeactivate
         self.scripts = scripts
+        self.source = source
+        self.cwd = cwd
+        self.environment = environment
+        self.runner = runner
+        self.marginLeft = marginLeft
+        self.marginRight = marginRight
     }
+}
+
+public func resolvePath(_ path: String, relativeTo base: URL) -> String {
+    let expanded = (path as NSString).expandingTildeInPath
+    return expanded.hasPrefix("/") ? expanded : base.appending(path: expanded).standardizedFileURL.path
+}
+
+public func shellQuote(_ value: String) -> String {
+    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
 public struct DeactivationPolicy: Codable, Equatable, Sendable {
@@ -178,10 +230,18 @@ public struct RunnerScript: Codable, Equatable, Identifiable, Sendable {
         self.environment = environment
     }
 
+    public var displayCommand: String {
+        command ?? ([executable ?? ""] + arguments).map(shellQuote).joined(separator: " ")
+    }
+
     public func launchSpec(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> LaunchSpec {
         let directory = cwd.map { expandTilde($0, homeDirectory: homeDirectory) }
         if let command {
-            return LaunchSpec(executable: shell ?? "/bin/zsh", arguments: ["-lc", command], cwd: directory, environment: environment)
+            let commandShell = shell ?? "/bin/zsh"
+            // Tools managed by NVM and similar managers are often initialized in .zshrc.
+            // Finder does not provide the PATH inherited when launching from Terminal.
+            let flags = URL(fileURLWithPath: commandShell).lastPathComponent == "zsh" ? "-ilc" : "-lc"
+            return LaunchSpec(executable: commandShell, arguments: [flags, command], cwd: directory, environment: environment)
         }
         return LaunchSpec(executable: executable ?? "", arguments: arguments, cwd: directory, environment: environment)
     }

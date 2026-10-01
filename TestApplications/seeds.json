@@ -1,0 +1,5 @@
+[
+  {"id":"default","title":"Default","arguments":["default"]},
+  {"id":"empty","title":"Empty","arguments":["empty"]},
+  {"id":"component","title":"Component…","arguments":["component"],"parameter":{"prompt":"Component name","default":"ADB"}}
+]
