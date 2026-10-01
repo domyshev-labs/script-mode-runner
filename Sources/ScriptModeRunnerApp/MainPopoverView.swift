@@ -11,12 +11,15 @@ private struct ParameterSelection: Identifiable {
 
 struct MainPopoverView: View {
     @ObservedObject var state: AppState
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var showReloadHelp = false
+    @State private var reloadHelpTask: Task<Void, Never>?
     @State private var pendingParameter: ParameterSelection?
     @State private var parameterValue = ""
 
     var body: some View {
         VStack(spacing: 10) {
-            header
+            header.zIndex(1)
             if let config = state.configuration, !config.tabs.isEmpty { content(config) }
             else {
                 ContentUnavailableView("No configuration", systemImage: "doc.badge.gearshape",
@@ -29,6 +32,11 @@ struct MainPopoverView: View {
         }
         .padding(12)
         .frame(width: 680, height: 480)
+        .background(windowBackground)
+        .onDisappear {
+            reloadHelpTask?.cancel()
+            showReloadHelp = false
+        }
         .sheet(item: $pendingParameter) { selection in
             VStack(alignment: .leading, spacing: 12) {
                 Text(selection.item.title).font(.headline)
@@ -54,11 +62,63 @@ struct MainPopoverView: View {
         HStack {
             Text("Script Mode Runner").font(.headline)
             Spacer()
-            Button("Reload", systemImage: "arrow.clockwise") { state.reload() }
-                .labelStyle(.iconOnly).help("Reread the configuration and refresh command catalogs.\n\(state.configURL.path)")
+            Button("Reload", systemImage: "arrow.clockwise") {
+                reloadHelpTask?.cancel()
+                showReloadHelp = false
+                state.reload()
+            }
+            .labelStyle(.iconOnly)
+            .accessibilityHint("Reread the configuration and refresh command catalogs")
+            .onHover { hovering in
+                reloadHelpTask?.cancel()
+                if hovering {
+                    reloadHelpTask = Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(350))
+                        guard !Task.isCancelled else { return }
+                        showReloadHelp = true
+                    }
+                } else { showReloadHelp = false }
+            }
+            .overlay(alignment: .topTrailing) {
+                if showReloadHelp {
+                    reloadHelp
+                        .offset(y: 30)
+                        .allowsHitTesting(false)
+                }
+            }
             Button("Quit", systemImage: "power") { NSApplication.shared.terminate(nil) }
                 .labelStyle(.iconOnly)
         }
+    }
+
+    private var windowBackground: some View {
+        LinearGradient(
+            colors: colorScheme == .dark
+                ? [Color(red: 0.20, green: 0.22, blue: 0.26), Color(red: 0.16, green: 0.18, blue: 0.21)]
+                : [Color(nsColor: .windowBackgroundColor), Color(nsColor: .controlBackgroundColor)],
+            startPoint: .topLeading, endPoint: .bottomTrailing
+        )
+    }
+
+    private var reloadHelp: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Reload configuration", systemImage: "arrow.clockwise")
+                .font(.system(size: 13, weight: .semibold))
+            Text("Rereads the config file and refreshes command and seed catalogs. Running processes keep working.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+            Text(state.configURL.path)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .textSelection(.disabled)
+        }
+        .padding(14)
+        .frame(width: 290, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(colorScheme == .dark ? Color(red: 0.29, green: 0.32, blue: 0.37) : .white,
+                    in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.14), lineWidth: 1))
+        .shadow(color: .black.opacity(colorScheme == .dark ? 0.35 : 0.15), radius: 12, y: 5)
     }
 
     @ViewBuilder
@@ -78,6 +138,8 @@ struct MainPopoverView: View {
                     .frame(minWidth: geometry.size.width, alignment: .leading)
                     .padding(.vertical, 3)
                 }
+                .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+                .scrollIndicators(.automatic)
             }.frame(height: 32)
             if state.visibleScripts.isEmpty {
                 ContentUnavailableView("No runs yet", systemImage: "terminal",
@@ -175,7 +237,10 @@ struct MainPopoverView: View {
                             .help(run.script.displayCommand).id(run.id)
                         }
                     }
-                }.fixedSize(horizontal: false, vertical: true)
+                }
+                .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+                .scrollIndicators(.automatic)
+                .fixedSize(horizontal: false, vertical: true)
                 .onChange(of: state.selectedOutputID) { _, id in if let id { proxy.scrollTo(id) } }
             }
             if let id = state.selectedOutputID, let log = state.logs[id] {
@@ -190,6 +255,8 @@ struct MainPopoverView: View {
                     Button("Clear") { state.clearSelectedLog() }
                 }
                 LogTextView(text: log.buffer.string).id(id)
+                    .clipShape(RoundedRectangle(cornerRadius: 7))
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.primary.opacity(0.08), lineWidth: 1))
             }
         }
         .frame(maxHeight: .infinity)
