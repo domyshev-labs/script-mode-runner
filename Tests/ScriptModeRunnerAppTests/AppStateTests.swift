@@ -207,7 +207,8 @@ private func waitUntil(_ condition: () -> Bool) async throws {
     try await waitUntil { state.activity(tab.buttons[1], in: tab) == .running && state.busyTabs.isEmpty }
     #expect(state.visibleScripts.count == 2)
     #expect(state.visibleScripts.allSatisfy { $0.buttonID == "mock" })
-    #expect(state.visibleScripts.contains { $0.id == state.selectedOutputID })
+    #expect(state.selectedOutputID == state.visibleScripts.first?.id)
+    #expect(state.selectedRun?.script.id == "dev")
     state.toggle(tab.buttons[0], in: tab)
     try await waitUntil { state.activity(tab.buttons[0], in: tab) == .running && state.busyTabs.isEmpty }
     #expect(state.visibleScripts.count == 1)

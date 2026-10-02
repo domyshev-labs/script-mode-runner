@@ -273,6 +273,7 @@ struct MainPopoverView: View {
                     .help(url.absoluteString)
                     .padding(.horizontal, 8).padding(.vertical, 5)
                     .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
+                    .background(PointingHandCursorRegion().allowsHitTesting(false))
                 }
                 LogTextView(text: log.buffer.string).id(id)
                     .clipShape(RoundedRectangle(cornerRadius: 7))
@@ -289,6 +290,21 @@ struct MainPopoverView: View {
         case .failed: .red
         case let .exited(code) where code != 0: .red
         default: .secondary
+        }
+    }
+}
+
+private struct PointingHandCursorRegion: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { CursorView() }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        view.window?.invalidateCursorRects(for: view)
+    }
+
+    private final class CursorView: NSView {
+        override func resetCursorRects() {
+            super.resetCursorRects()
+            addCursorRect(bounds, cursor: .pointingHand)
         }
     }
 }
