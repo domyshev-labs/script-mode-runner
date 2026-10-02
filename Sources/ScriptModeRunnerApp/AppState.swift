@@ -156,7 +156,9 @@ final class AppState: ObservableObject {
                 selectVisibleOutput()
                 activeModes[tab.id] = mode.id
                 let batchID = UUID().uuidString
-                for script in mode.scripts { await start(script, button: mode, tab: tab, batchID: batchID) }
+                for (index, script) in mode.scripts.enumerated() {
+                    await start(script, button: mode, tab: tab, batchID: batchID, selectOutput: index == 0)
+                }
             }
         }
     }
@@ -174,17 +176,17 @@ final class AppState: ObservableObject {
         Task { await execute(id, script: script) }
     }
 
-    private func reserve(_ script: RunnerScript, button: RunnerMode, tab: RunnerTab, isMenu: Bool, batchID: String? = nil) -> String {
+    private func reserve(_ script: RunnerScript, button: RunnerMode, tab: RunnerTab, isMenu: Bool, batchID: String? = nil, selectOutput: Bool = true) -> String {
         let id = UUID().uuidString
         runs.append(ScriptRun(id: id, tabID: tab.id, batchID: batchID ?? id, buttonID: button.id, script: script, policy: button.onDeactivate, isMenu: isMenu, isSeed: isMenu && button.source?.type != .packageScripts, contextModeID: isMenu ? viewedModes[tab.id] : button.id))
         logs[id] = ScriptLog(status: .starting)
-        if selectedTabID == tab.id { selectedOutputID = id }
+        if selectOutput && selectedTabID == tab.id { selectedOutputID = id }
         pruneHistory()
         return id
     }
 
-    private func start(_ script: RunnerScript, button: RunnerMode, tab: RunnerTab, batchID: String) async {
-        let id = reserve(script, button: button, tab: tab, isMenu: false, batchID: batchID)
+    private func start(_ script: RunnerScript, button: RunnerMode, tab: RunnerTab, batchID: String, selectOutput: Bool) async {
+        let id = reserve(script, button: button, tab: tab, isMenu: false, batchID: batchID, selectOutput: selectOutput)
         await execute(id, script: script)
     }
 
