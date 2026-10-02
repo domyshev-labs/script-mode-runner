@@ -252,7 +252,13 @@ struct MainPopoverView: View {
                     Text("· \(log.buffer.count) bytes").font(.caption).foregroundStyle(.tertiary)
                     Spacer()
                     if log.status?.isRunning == true {
-                        Button("Stop") { state.stopSelected() }.disabled(log.status == .stopping)
+                        Button("Reload") { state.reloadSelected() }
+                            .help("Restart the selected command")
+                            .disabled(log.status == .starting || log.status == .stopping ||
+                                      state.restartingRuns.contains(id) ||
+                                      state.selectedRun.map { state.busyTabs.contains($0.tabID) } == true)
+                        Button("Stop") { state.stopSelected() }
+                            .disabled(log.status == .stopping || state.restartingRuns.contains(id))
                     }
                     Button("Clear") { state.clearSelectedLog() }
                 }
