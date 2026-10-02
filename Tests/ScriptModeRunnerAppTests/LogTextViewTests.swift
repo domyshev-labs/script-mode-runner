@@ -70,3 +70,36 @@ import Testing
     #expect((text.attribute(.link, at: location, effectiveRange: nil) as? URL)?.absoluteString == "http://localhost:3000/ready")
     print("Formatted a 5 MB log in \(elapsed)")
 }
+
+@MainActor
+@Test func linkCursorTracksURLsWithoutAffectingPlainText() throws {
+    let scroll = makeLogScrollView()
+    updateLogScrollView(scroll, text: "Visit http://localhost:")
+    updateLogScrollView(scroll, text: "Visit http://localhost:3000\nPlain text")
+    let view = try #require(scroll.documentView as? NSTextView)
+    let storage = try #require(view.textStorage)
+    let urlRange = (view.string as NSString).range(of: "http://")
+    #expect(storage.attribute(.cursor, at: urlRange.location, effectiveRange: nil) as? NSCursor == .pointingHand)
+    #expect(storage.attribute(.cursor, at: 0, effectiveRange: nil) == nil)
+    let plainRange = (view.string as NSString).range(of: "Plain text")
+    #expect(storage.attribute(.cursor, at: plainRange.location, effectiveRange: nil) == nil)
+    updateLogScrollView(scroll, text: "No links")
+    #expect(view.textStorage?.attribute(.cursor, at: 0, effectiveRange: nil) == nil)
+}
+
+@Test func latestLinkIsShownOnlyForRunningLogsAndTracksNewOutput() {
+    var log = ScriptLog(status: .running(pid: 123))
+    log.buffer.append(Data("\u{001B}[32mhttp://localhost:3000\u{001B}[0m\nOpen (https://example.com/a_(b)).\n".utf8))
+    #expect(log.latestRunningLink?.absoluteString == "https://example.com/a_(b)")
+    log.buffer.append(Data("Next: http://localhost:".utf8))
+    log.buffer.append(Data("3010/ready\nMore output without URLs\n".utf8))
+    #expect(log.latestRunningLink?.absoluteString == "http://localhost:3010/ready")
+    log.status = .stopping
+    #expect(log.latestRunningLink == nil)
+    log.status = .exited(code: 0)
+    #expect(log.latestRunningLink == nil)
+    log.status = .running(pid: 456)
+    #expect(log.latestRunningLink?.absoluteString == "http://localhost:3010/ready")
+    log.buffer.removeAll()
+    #expect(log.latestRunningLink == nil)
+}

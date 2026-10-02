@@ -106,16 +106,17 @@ struct MainPopoverView: View {
                 .font(.system(size: 13, weight: .semibold))
             Text("Rereads the config file and refreshes command and seed catalogs. Running processes keep working.")
                 .font(.system(size: 12))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.94) : Color.primary)
             Text(state.configURL.path)
                 .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.8) : Color.secondary)
                 .textSelection(.disabled)
         }
+        .foregroundStyle(colorScheme == .dark ? Color.white : Color.primary)
         .padding(14)
         .frame(width: 290, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
-        .background(colorScheme == .dark ? Color(red: 0.29, green: 0.32, blue: 0.37) : .white,
+        .background(colorScheme == .dark ? Color(red: 0.17, green: 0.21, blue: 0.28) : .white,
                     in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.14), lineWidth: 1))
         .shadow(color: .black.opacity(colorScheme == .dark ? 0.35 : 0.15), radius: 12, y: 5)
@@ -127,6 +128,7 @@ struct MainPopoverView: View {
             ForEach(config.tabs) { tab in Text(tab.title).tag(Optional(tab.id)) }
         }
         .pickerStyle(.segmented)
+        .labelsHidden()
         if let tab = state.selectedTab {
             GeometryReader { geometry in
                 ScrollView(.horizontal) {
@@ -253,6 +255,18 @@ struct MainPopoverView: View {
                         Button("Stop") { state.stopSelected() }.disabled(log.status == .stopping)
                     }
                     Button("Clear") { state.clearSelectedLog() }
+                }
+                if let url = log.latestRunningLink {
+                    Link(destination: url) {
+                        Label(url.absoluteString, systemImage: "link")
+                            .font(.system(size: 12))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .help(url.absoluteString)
+                    .padding(.horizontal, 8).padding(.vertical, 5)
+                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
                 }
                 LogTextView(text: log.buffer.string).id(id)
                     .clipShape(RoundedRectangle(cornerRadius: 7))
