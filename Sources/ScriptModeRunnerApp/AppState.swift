@@ -6,6 +6,11 @@ import ScriptModeRunnerCore
 struct ScriptLog {
     var buffer = ByteRingBuffer()
     var status: ProcessStatus?
+
+    var latestRunningLink: URL? {
+        guard case .running = status else { return nil }
+        return detectedLogLinks(in: stripTerminalEscapes(buffer.string)).last?.url
+    }
 }
 
 struct ScriptRun: Identifiable {

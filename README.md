@@ -47,8 +47,10 @@ to stop a running command, **Close** on a completed tab, and **Clear** to clear
 its output. Log tabs show the launch command, truncate long titles, and expose
 the full command in a tooltip.
 
-HTTP and HTTPS links in logs open with a normal left click in the default
-browser. The browser controls whether to use a tab or window. ANSI color and
+HTTP and HTTPS links in logs show a pointing-hand cursor and open with a normal
+left click in the default browser. While the selected process is running, its
+latest detected URL also appears as a shortcut below the status line. The shortcut
+updates with output and disappears when the process stops or its log is cleared. The browser controls whether to use a tab or window. ANSI color and
 terminal hyperlink control sequences are removed from the displayed text.
 
 Mode and menu buttons use the same compact height and a neutral border. Menu

@@ -23,7 +23,8 @@ func makeLogScrollView() -> NSScrollView {
     let contentSize = scroll.contentSize
     let view = LogDocumentView(frame: NSRect(origin: .zero, size: contentSize))
     view.delegate = view
-    view.linkTextAttributes = [.foregroundColor: NSColor.linkColor, .underlineStyle: NSUnderlineStyle.single.rawValue]
+    view.linkTextAttributes = [.foregroundColor: NSColor.linkColor, .underlineStyle: NSUnderlineStyle.single.rawValue,
+                               .cursor: NSCursor.pointingHand]
     view.isEditable = false
     view.isSelectable = true
     view.isVerticallyResizable = true
@@ -65,6 +66,7 @@ func updateLogScrollView(_ scroll: NSScrollView, text: String) {
         }
         let range = NSRange(location: start, length: storage.length - start)
         storage.removeAttribute(.link, range: range)
+        storage.removeAttribute(.cursor, range: range)
         addLogLinks(to: storage, range: range)
         storage.endEditing()
     } else {
@@ -73,6 +75,7 @@ func updateLogScrollView(_ scroll: NSScrollView, text: String) {
         view.textStorage?.setAttributedString(attributed)
     }
     if wasAtBottom { view.scrollToEndOfDocument(nil) }
+    view.window?.invalidateCursorRects(for: view)
 }
 
 @MainActor
@@ -93,9 +96,16 @@ func stripTerminalEscapes(_ text: String) -> String {
 
 @MainActor
 func addLogLinks(to text: NSMutableAttributedString, range: NSRange? = nil) {
-    guard let regex = try? NSRegularExpression(pattern: #"https?://[^\s<>\"\x1B]+"#, options: .caseInsensitive) else { return }
-    let string = text.string as NSString
-    for match in regex.matches(in: text.string, range: range ?? NSRange(location: 0, length: text.length)) {
+    for link in detectedLogLinks(in: text.string, range: range) {
+        text.addAttributes([.link: link.url, .cursor: NSCursor.pointingHand], range: link.range)
+    }
+}
+
+func detectedLogLinks(in text: String, range: NSRange? = nil) -> [(url: URL, range: NSRange)] {
+    guard let regex = try? NSRegularExpression(pattern: #"https?://[^\s<>\"\x1B]+"#, options: .caseInsensitive) else { return [] }
+    let string = text as NSString
+    var links: [(url: URL, range: NSRange)] = []
+    for match in regex.matches(in: text, range: range ?? NSRange(location: 0, length: string.length)) {
         var value = string.substring(with: match.range)
         while let last = value.last {
             if ".,;:!?".contains(last) { value.removeLast(); continue }
@@ -106,6 +116,7 @@ func addLogLinks(to text: NSMutableAttributedString, range: NSRange? = nil) {
             break
         }
         guard let url = URL(string: value), url.host != nil else { continue }
-        text.addAttribute(.link, value: url, range: NSRange(location: match.range.location, length: value.utf16.count))
+        links.append((url, NSRange(location: match.range.location, length: value.utf16.count)))
     }
+    return links
 }
