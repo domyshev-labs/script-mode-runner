@@ -46,6 +46,7 @@ final class AppState: ObservableObject {
     @Published private(set) var runs: [ScriptRun] = []
     @Published private(set) var catalogs: [String: CatalogState] = [:]
     @Published private(set) var busyTabs: Set<String> = []
+    @Published private(set) var restartingRuns: Set<String> = []
 
     let configURL: URL
     private let relay: EventRelay
@@ -202,8 +203,35 @@ final class AppState: ObservableObject {
 
     func stopSelected() { if let id = selectedOutputID { Task { await stop(id) } } }
 
+    func reloadSelected() {
+        guard let run = selectedRun, case .running = logs[run.id]?.status,
+              !busyTabs.contains(run.tabID), !restartingRuns.contains(run.id) else { return }
+        restartingRuns.insert(run.id)
+        busyTabs.insert(run.tabID)
+        Task {
+            defer {
+                restartingRuns.remove(run.id)
+                busyTabs.remove(run.tabID)
+            }
+            await stop(run.id)
+            // Exit events arrive through the relay after the supervisor releases the process.
+            for _ in 0..<100 where logs[run.id]?.status?.isRunning == true {
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+            guard logs[run.id]?.status?.isRunning == false,
+                  let index = runs.firstIndex(where: { $0.id == run.id }) else {
+                errorMessage = "The selected process is still stopping. Wait before reloading it."
+                return
+            }
+            runs[index].requestedStop = false
+            logs[run.id] = ScriptLog(status: .starting)
+            if !run.isMenu { activeModes[run.tabID] = run.buttonID }
+            await execute(run.id, script: run.script)
+        }
+    }
+
     func close(_ id: String) {
-        guard logs[id]?.status?.isRunning != true else { return }
+        guard logs[id]?.status?.isRunning != true, !restartingRuns.contains(id) else { return }
         runs.removeAll { $0.id == id }
         logs[id] = nil
         selectVisibleOutput()
