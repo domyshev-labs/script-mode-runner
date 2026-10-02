@@ -6,6 +6,11 @@ import ScriptModeRunnerCore
 struct ScriptLog {
     var buffer = ByteRingBuffer()
     var status: ProcessStatus?
+
+    var latestRunningLink: URL? {
+        guard case .running = status else { return nil }
+        return detectedLogLinks(in: stripTerminalEscapes(buffer.string)).last?.url
+    }
 }
 
 struct ScriptRun: Identifiable {
@@ -17,6 +22,7 @@ struct ScriptRun: Identifiable {
     let policy: DeactivationPolicy
     let isMenu: Bool
     let isSeed: Bool
+    let contextModeID: String?
     var requestedStop = false
 }
 
@@ -34,11 +40,13 @@ final class AppState: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published var selectedTabID: String? { didSet { selectVisibleOutput() } }
     @Published var selectedOutputID: String?
+    @Published private(set) var viewedModes: [String: String] = [:]
     @Published private(set) var activeModes: [String: String] = [:]
     @Published private(set) var logs: [String: ScriptLog] = [:]
     @Published private(set) var runs: [ScriptRun] = []
     @Published private(set) var catalogs: [String: CatalogState] = [:]
     @Published private(set) var busyTabs: Set<String> = []
+    @Published private(set) var restartingRuns: Set<String> = []
 
     let configURL: URL
     private let relay: EventRelay
@@ -55,7 +63,13 @@ final class AppState: ObservableObject {
     }
 
     var selectedTab: RunnerTab? { configuration?.tabs.first { $0.id == selectedTabID } }
-    var visibleScripts: [ScriptRun] { runs.filter { $0.tabID == selectedTabID } }
+    var visibleScripts: [ScriptRun] {
+        let context = selectedTabID.flatMap { viewedModes[$0] }
+        let candidates = runs.filter { $0.tabID == selectedTabID && $0.contextModeID == context }
+        // A configured script owns one visible log; restarting replaces its displayed run.
+        var seen = Set<String>()
+        return candidates.reversed().filter { seen.insert($0.isMenu ? $0.id : "\($0.buttonID)/\($0.script.id)").inserted }.reversed()
+    }
     var selectedRun: ScriptRun? { runs.first { $0.id == selectedOutputID } }
 
     func catalogKey(_ button: RunnerMode, tab: RunnerTab) -> String { "\(tab.id)/\(button.id)" }
@@ -138,9 +152,13 @@ final class AppState: ObservableObject {
                     errorMessage = "The previous mode is still stopping. Stop its processes before starting another mode."
                     return
                 }
+                viewedModes[tab.id] = mode.id
+                selectVisibleOutput()
                 activeModes[tab.id] = mode.id
                 let batchID = UUID().uuidString
-                for script in mode.scripts { await start(script, button: mode, tab: tab, batchID: batchID) }
+                for (index, script) in mode.scripts.enumerated() {
+                    await start(script, button: mode, tab: tab, batchID: batchID, selectOutput: index == 0)
+                }
             }
         }
     }
@@ -158,17 +176,17 @@ final class AppState: ObservableObject {
         Task { await execute(id, script: script) }
     }
 
-    private func reserve(_ script: RunnerScript, button: RunnerMode, tab: RunnerTab, isMenu: Bool, batchID: String? = nil) -> String {
+    private func reserve(_ script: RunnerScript, button: RunnerMode, tab: RunnerTab, isMenu: Bool, batchID: String? = nil, selectOutput: Bool = true) -> String {
         let id = UUID().uuidString
-        runs.append(ScriptRun(id: id, tabID: tab.id, batchID: batchID ?? id, buttonID: button.id, script: script, policy: button.onDeactivate, isMenu: isMenu, isSeed: isMenu && button.source?.type != .packageScripts))
+        runs.append(ScriptRun(id: id, tabID: tab.id, batchID: batchID ?? id, buttonID: button.id, script: script, policy: button.onDeactivate, isMenu: isMenu, isSeed: isMenu && button.source?.type != .packageScripts, contextModeID: isMenu ? viewedModes[tab.id] : button.id))
         logs[id] = ScriptLog(status: .starting)
-        selectedOutputID = id
+        if selectOutput && selectedTabID == tab.id { selectedOutputID = id }
         pruneHistory()
         return id
     }
 
-    private func start(_ script: RunnerScript, button: RunnerMode, tab: RunnerTab, batchID: String) async {
-        let id = reserve(script, button: button, tab: tab, isMenu: false, batchID: batchID)
+    private func start(_ script: RunnerScript, button: RunnerMode, tab: RunnerTab, batchID: String, selectOutput: Bool) async {
+        let id = reserve(script, button: button, tab: tab, isMenu: false, batchID: batchID, selectOutput: selectOutput)
         await execute(id, script: script)
     }
 
@@ -187,8 +205,35 @@ final class AppState: ObservableObject {
 
     func stopSelected() { if let id = selectedOutputID { Task { await stop(id) } } }
 
+    func reloadSelected() {
+        guard let run = selectedRun, case .running = logs[run.id]?.status,
+              !busyTabs.contains(run.tabID), !restartingRuns.contains(run.id) else { return }
+        restartingRuns.insert(run.id)
+        busyTabs.insert(run.tabID)
+        Task {
+            defer {
+                restartingRuns.remove(run.id)
+                busyTabs.remove(run.tabID)
+            }
+            await stop(run.id)
+            // Exit events arrive through the relay after the supervisor releases the process.
+            for _ in 0..<100 where logs[run.id]?.status?.isRunning == true {
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+            guard logs[run.id]?.status?.isRunning == false,
+                  let index = runs.firstIndex(where: { $0.id == run.id }) else {
+                errorMessage = "The selected process is still stopping. Wait before reloading it."
+                return
+            }
+            runs[index].requestedStop = false
+            logs[run.id] = ScriptLog(status: .starting)
+            if !run.isMenu { activeModes[run.tabID] = run.buttonID }
+            await execute(run.id, script: run.script)
+        }
+    }
+
     func close(_ id: String) {
-        guard logs[id]?.status?.isRunning != true else { return }
+        guard logs[id]?.status?.isRunning != true, !restartingRuns.contains(id) else { return }
         runs.removeAll { $0.id == id }
         logs[id] = nil
         selectVisibleOutput()

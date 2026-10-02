@@ -6,6 +6,8 @@
     <string>Script Mode Runner</string>
     <key>CFBundleExecutable</key>
     <string>ScriptModeRunner</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>dev.domyshev.script-mode-runner</string>
     <key>CFBundleInfoDictionaryVersion</key>
