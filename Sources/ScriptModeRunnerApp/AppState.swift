@@ -46,6 +46,7 @@ final class AppState: ObservableObject {
     @Published private(set) var runs: [ScriptRun] = []
     @Published private(set) var catalogs: [String: CatalogState] = [:]
     @Published private(set) var busyTabs: Set<String> = []
+    @Published private(set) var transitioningModes: [String: Set<String>] = [:]
     @Published private(set) var restartingRuns: Set<String> = []
 
     let configURL: URL
@@ -113,6 +114,7 @@ final class AppState: ObservableObject {
     }
 
     func activity(_ button: RunnerMode, in tab: RunnerTab) -> ButtonActivity {
+        if transitioningModes[tab.id]?.contains(button.id) == true { return .transitioning }
         let history = runs.filter { $0.tabID == tab.id && $0.buttonID == button.id }
         let relevant = button.source != nil ? history : history.filter { $0.batchID == history.last?.batchID }
         if relevant.contains(where: { isTransitioning(logs[$0.id]?.status) }) { return .transitioning }
@@ -133,31 +135,71 @@ final class AppState: ObservableObject {
         return .idle
     }
 
+    func selectedMode(in tab: RunnerTab) -> RunnerMode? {
+        let modes = tab.buttons.filter { $0.source == nil }
+        return modes.first { $0.id == viewedModes[tab.id] } ?? modes.first
+    }
+
+    func runningMode(in tab: RunnerTab) -> RunnerMode? {
+        tab.buttons.first { mode in
+            mode.source == nil && runs.contains {
+                $0.tabID == tab.id && !$0.isMenu && $0.buttonID == mode.id && logs[$0.id]?.status?.isRunning == true
+            }
+        }
+    }
+
+    func startMode(_ mode: RunnerMode, in tab: RunnerTab) {
+        guard runningMode(in: tab)?.id != mode.id else { return }
+        transition(mode, in: tab, startAfterStop: true)
+    }
+
+    func stopMode(_ mode: RunnerMode, in tab: RunnerTab) {
+        guard runningMode(in: tab)?.id == mode.id else { return }
+        transition(mode, in: tab, startAfterStop: false)
+    }
+
+    func restartMode(_ mode: RunnerMode, in tab: RunnerTab) {
+        guard runningMode(in: tab)?.id == mode.id else { return }
+        transition(mode, in: tab, startAfterStop: true)
+    }
+
     func toggle(_ mode: RunnerMode, in tab: RunnerTab) {
+        transition(mode, in: tab, startAfterStop: runningMode(in: tab)?.id != mode.id)
+    }
+
+    private func transition(_ mode: RunnerMode, in tab: RunnerTab, startAfterStop: Bool) {
         guard !busyTabs.contains(tab.id) else { return }
         busyTabs.insert(tab.id)
+        let live = runs.filter { $0.tabID == tab.id && !$0.isMenu && logs[$0.id]?.status?.isRunning == true }
+        transitioningModes[tab.id] = live.isEmpty ? [mode.id] : Set(live.map(\.buttonID))
         Task {
-            defer { busyTabs.remove(tab.id) }
-            let live = runs.filter { $0.tabID == tab.id && !$0.isMenu && logs[$0.id]?.status?.isRunning == true }
-            let same = live.filter { $0.buttonID == mode.id }
-            if !same.isEmpty {
-                for run in same { await stop(run.id) }
+            defer {
+                transitioningModes[tab.id] = nil
+                busyTabs.remove(tab.id)
+            }
+            let stopping = live
+            for run in stopping { await stop(run.id) }
+            for _ in 0..<100 where stopping.contains(where: { logs[$0.id]?.status?.isRunning == true }) {
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+            guard !stopping.contains(where: { logs[$0.id]?.status?.isRunning == true }) else {
+                errorMessage = "The previous mode is still stopping. Stop its processes before starting another mode."
+                return
+            }
+            if !startAfterStop {
                 activeModes[tab.id] = nil
             } else {
-                for run in live { await stop(run.id) }
-                for _ in 0..<100 where live.contains(where: { logs[$0.id]?.status?.isRunning == true }) {
-                    try? await Task.sleep(for: .milliseconds(20))
-                }
-                guard !live.contains(where: { logs[$0.id]?.status?.isRunning == true }) else {
-                    errorMessage = "The previous mode is still stopping. Stop its processes before starting another mode."
-                    return
-                }
+                transitioningModes[tab.id] = [mode.id]
                 viewedModes[tab.id] = mode.id
                 selectVisibleOutput()
                 activeModes[tab.id] = mode.id
                 let batchID = UUID().uuidString
                 for (index, script) in mode.scripts.enumerated() {
                     await start(script, button: mode, tab: tab, batchID: batchID, selectOutput: index == 0)
+                }
+                // Keep all mode buttons locked until the relay reports startup completion.
+                while runs.contains(where: { $0.batchID == batchID && logs[$0.id]?.status == .starting }) {
+                    try? await Task.sleep(for: .milliseconds(20))
                 }
             }
         }

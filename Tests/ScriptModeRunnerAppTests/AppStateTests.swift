@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 import ScriptModeRunnerCore
@@ -67,6 +68,114 @@ private func waitUntil(_ condition: () -> Bool) async throws {
 }
 
 @MainActor
+@Test func modeTransitionMovesLoaderAndLocksButtonsUntilCompletion() async throws {
+    let config = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: config) }
+    try """
+    tabs:
+      - id: test
+        title: Test
+        buttons:
+          - id: primary
+            title: Primary
+            on_deactivate: {sigint: true, sigkill: true, timeout: 0.2s}
+            scripts:
+              - {id: server, title: Server, executable: /bin/sleep, arguments: [30]}
+          - id: secondary
+            title: Secondary
+            on_deactivate: {sigkill: true}
+            scripts:
+              - {id: server, title: Server, executable: /bin/sleep, arguments: [30]}
+    """.write(to: config, atomically: true, encoding: .utf8)
+    let state = AppState(configURL: config)
+    defer { Task { await state.shutdown() } }
+    let tab = try #require(state.selectedTab)
+    let primary = tab.buttons[0]
+    let secondary = tab.buttons[1]
+    state.toggle(primary, in: tab)
+    #expect(state.activity(primary, in: tab) == .transitioning)
+    #expect(state.busyTabs.contains(tab.id))
+    try await waitUntil { state.activity(primary, in: tab) == .running && state.busyTabs.isEmpty }
+
+    var phases: [Set<String>] = []
+    var phasesWereBusy = true
+    let subscription = state.$transitioningModes.dropFirst().sink { modes in
+        if let phase = modes[tab.id] {
+            phases.append(phase)
+            phasesWereBusy = phasesWereBusy && state.busyTabs.contains(tab.id)
+        }
+    }
+    defer { subscription.cancel() }
+    state.toggle(secondary, in: tab)
+    #expect(state.activity(primary, in: tab) == .transitioning)
+    #expect(state.activity(secondary, in: tab) == .idle)
+    #expect(state.busyTabs.contains(tab.id))
+    state.toggle(primary, in: tab)
+    state.toggle(secondary, in: tab)
+    try await waitUntil { state.activity(secondary, in: tab) == .running && state.busyTabs.isEmpty }
+    #expect(phases == [[primary.id], [secondary.id]])
+    #expect(phasesWereBusy)
+    #expect(state.transitioningModes.isEmpty)
+    #expect(state.activity(primary, in: tab) == .idle)
+    #expect(state.runs.count == 2)
+
+    state.toggle(secondary, in: tab)
+    #expect(state.activity(secondary, in: tab) == .transitioning)
+    #expect(state.busyTabs.contains(tab.id))
+    try await waitUntil { state.activity(secondary, in: tab) == .idle && state.busyTabs.isEmpty }
+    #expect(state.transitioningModes.isEmpty)
+    #expect(state.logs.values.allSatisfy { $0.status?.isRunning == false })
+    await state.shutdown()
+}
+
+@MainActor
+@Test func modeSelectionSurvivesStopAndRestartReplacesAllProcesses() async throws {
+    let config = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: config) }
+    try """
+    tabs:
+      - id: test
+        title: Test
+        buttons:
+          - id: primary
+            title: Primary
+            on_deactivate: {sigkill: true}
+            scripts:
+              - {id: one, title: One, executable: /bin/sleep, arguments: [30]}
+              - {id: two, title: Two, executable: /bin/sleep, arguments: [30]}
+          - id: secondary
+            title: Secondary
+            on_deactivate: {sigkill: true}
+            scripts:
+              - {id: one, title: One, executable: /bin/sleep, arguments: [30]}
+    """.write(to: config, atomically: true, encoding: .utf8)
+    let state = AppState(configURL: config)
+    defer { Task { await state.shutdown() } }
+    let tab = try #require(state.selectedTab)
+    let primary = tab.buttons[0]
+    let secondary = tab.buttons[1]
+    #expect(state.selectedMode(in: tab)?.id == primary.id)
+    state.startMode(primary, in: tab)
+    try await waitUntil { state.activity(primary, in: tab) == .running && state.busyTabs.isEmpty }
+    let original = state.runs.map(\.id)
+    state.startMode(primary, in: tab)
+    #expect(state.runs.count == 2)
+    state.restartMode(primary, in: tab)
+    try await waitUntil { state.runs.count == 4 && state.activity(primary, in: tab) == .running && state.busyTabs.isEmpty }
+    #expect(original.allSatisfy { state.logs[$0]?.status?.isRunning == false })
+    state.startMode(secondary, in: tab)
+    try await waitUntil { state.runningMode(in: tab)?.id == secondary.id && state.busyTabs.isEmpty }
+    #expect(state.selectedMode(in: tab)?.id == secondary.id)
+    #expect(state.runs.filter { state.logs[$0.id]?.status?.isRunning == true }.count == 1)
+    state.stopMode(secondary, in: tab)
+    try await waitUntil { state.runningMode(in: tab) == nil && state.busyTabs.isEmpty }
+    #expect(state.selectedMode(in: tab)?.id == secondary.id)
+    state.startMode(secondary, in: tab)
+    try await waitUntil { state.runningMode(in: tab)?.id == secondary.id && state.busyTabs.isEmpty }
+    await state.shutdown()
+}
+
+@MainActor
 @Test func failedModeIsRedAndCanBeRestarted() async throws {
     let config = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: config) }
@@ -90,6 +199,7 @@ private func waitUntil(_ condition: () -> Bool) async throws {
     let button = tab.buttons[0]
     state.toggle(button, in: tab)
     try await waitUntil { state.activity(button, in: tab) == .failed && !state.busyTabs.contains(tab.id) }
+    #expect(state.transitioningModes.isEmpty)
     state.toggle(button, in: tab)
     try await waitUntil { state.runs.count == 2 && state.logs[state.runs[1].id]?.status == .exited(code: 7) }
     #expect(state.runs[0].id != state.runs[1].id)
