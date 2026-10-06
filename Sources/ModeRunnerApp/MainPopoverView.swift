@@ -386,11 +386,12 @@ private struct ModeControlButton: View {
             Image(systemName: symbol)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(enabled ? tint : Color.secondary.opacity(0.5))
-                .frame(width: 16, height: 24)
+                .frame(width: 16, height: 16)
                 .background(tint.opacity(enabled ? (hovering ? 0.24 : 0.08) : 0),
                             in: RoundedRectangle(cornerRadius: 5))
                 .overlay(RoundedRectangle(cornerRadius: 5)
                     .strokeBorder(tint.opacity(enabled && hovering ? 0.5 : 0), lineWidth: 1))
+                .frame(width: 16, height: 24)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
