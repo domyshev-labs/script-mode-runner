@@ -12,8 +12,9 @@ private struct ParameterSelection: Identifiable {
 struct MainPopoverView: View {
     @ObservedObject var state: AppState
     @Environment(\.colorScheme) private var colorScheme
-    @State private var showReloadHelp = false
-    @State private var reloadHelpTask: Task<Void, Never>?
+    @State private var pendingRunnerAction: RunnerAction?
+    @State private var terminateProcesses = false
+    @State private var confirmedRunnerAction: RunnerAction?
     @State private var pendingParameter: ParameterSelection?
     @State private var parameterValue = ""
     @State private var draggedProjectID: String?
@@ -36,10 +37,32 @@ struct MainPopoverView: View {
         .frame(width: 680, height: 480)
         .background(windowBackground)
         .onDisappear {
-            reloadHelpTask?.cancel()
-            showReloadHelp = false
             draggedProjectID = nil
             dropTargetProjectID = nil
+        }
+        .sheet(item: $pendingRunnerAction, onDismiss: {
+            guard let action = confirmedRunnerAction else { return }
+            confirmedRunnerAction = nil
+            (NSApplication.shared.delegate as? AppDelegate)?.perform(action, terminateProcesses: terminateProcesses)
+        }) { action in
+            VStack(alignment: .leading, spacing: 16) {
+                Text(action.title + "?").font(.headline)
+                Text("Running processes will keep working unless you choose to terminate them.")
+                Toggle("Terminate processes", isOn: $terminateProcesses)
+                    .toggleStyle(.checkbox)
+                HStack {
+                    Spacer()
+                    Button("Cancel") { pendingRunnerAction = nil }
+                        .keyboardShortcut(.cancelAction)
+                    Button("Confirm") {
+                        confirmedRunnerAction = action
+                        pendingRunnerAction = nil
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(20)
+            .frame(width: 380)
         }
         .sheet(item: $pendingParameter) { selection in
             VStack(alignment: .leading, spacing: 12) {
@@ -66,32 +89,11 @@ struct MainPopoverView: View {
         HStack {
             Text("Mode Runner").font(.headline)
             Spacer()
-            Button("Reload", systemImage: "arrow.clockwise") {
-                reloadHelpTask?.cancel()
-                showReloadHelp = false
-                state.reload()
+            RunnerActionsMenu(configURL: state.configURL, reload: { state.reload() }) { action in
+                terminateProcesses = false
+                pendingRunnerAction = action
             }
-            .labelStyle(.iconOnly)
-            .accessibilityHint("Reread the configuration and refresh command catalogs")
-            .onHover { hovering in
-                reloadHelpTask?.cancel()
-                if hovering {
-                    reloadHelpTask = Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(350))
-                        guard !Task.isCancelled else { return }
-                        showReloadHelp = true
-                    }
-                } else { showReloadHelp = false }
-            }
-            .overlay(alignment: .topTrailing) {
-                if showReloadHelp {
-                    reloadHelp
-                        .offset(y: 30)
-                        .allowsHitTesting(false)
-                }
-            }
-            Button("Quit", systemImage: "power") { NSApplication.shared.terminate(nil) }
-                .labelStyle(.iconOnly)
+            .frame(width: 18, height: 18)
         }
     }
 
@@ -102,28 +104,6 @@ struct MainPopoverView: View {
                 : [Color(nsColor: .windowBackgroundColor), Color(nsColor: .controlBackgroundColor)],
             startPoint: .topLeading, endPoint: .bottomTrailing
         )
-    }
-
-    private var reloadHelp: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Reload configuration", systemImage: "arrow.clockwise")
-                .font(.system(size: 13, weight: .semibold))
-            Text("Rereads the config file and refreshes command and seed catalogs. Running processes keep working.")
-                .font(.system(size: 12))
-                .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.94) : Color.primary)
-            Text(state.configURL.path)
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.8) : Color.secondary)
-                .textSelection(.disabled)
-        }
-        .foregroundStyle(colorScheme == .dark ? Color.white : Color.primary)
-        .padding(14)
-        .frame(width: 290, alignment: .leading)
-        .fixedSize(horizontal: false, vertical: true)
-        .background(colorScheme == .dark ? Color(red: 0.17, green: 0.21, blue: 0.28) : .white,
-                    in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.14), lineWidth: 1))
-        .shadow(color: .black.opacity(colorScheme == .dark ? 0.35 : 0.15), radius: 12, y: 5)
     }
 
     @ViewBuilder

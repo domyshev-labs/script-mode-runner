@@ -44,7 +44,14 @@ MODE_RUNNER_CONFIG="$PWD/Examples/test-apps.yaml" swift run ModeRunner
 - Drag project tabs onto one another to change their order. The order is saved
   locally for each configuration file and restored when the app starts again.
 - Reloading preserves running processes while updating the configuration shown in the UI.
-- On normal exit, the app stops managed process groups.
+- The top-right hamburger menu offers **Reload configuration**, **Restart "Mode runner"**,
+  and **Poweroff "Mode runner"**. Hover over Reload configuration to see the file path.
+- Restart and poweroff require confirmation. **Terminate processes** is unchecked by
+  default; enable it to stop managed process groups before closing the app.
+  If exit hangs for six seconds, an independent watchdog forces the app to quit;
+  Restart then launches a replacement instance.
+- Processes left running continue independently. Their output is drained after exit;
+  a restarted app does not reconnect to their logs or regain control of them.
 - The app keeps at most 5 MB of output per process in memory.
 
 ## Command menus and logs

@@ -329,8 +329,15 @@ final class AppState: ObservableObject {
     func shutdown() async {
         for task in catalogTasks.values { task.cancel() }
         let tasks = Array(catalogTasks.values)
-        for task in tasks { await task.value }
         await supervisor.stopAll()
+        for task in tasks { await task.value }
+    }
+
+    func preserveProcesses(executablePath: String) async throws {
+        for task in catalogTasks.values { task.cancel() }
+        let tasks = Array(catalogTasks.values)
+        try await supervisor.preserveOutput(executablePath: executablePath)
+        for task in tasks { await task.value }
     }
 
     private func selectVisibleOutput() {

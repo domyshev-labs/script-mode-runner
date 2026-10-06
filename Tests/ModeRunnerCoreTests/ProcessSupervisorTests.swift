@@ -82,6 +82,44 @@ import Testing
     #expect(receivedBeforeStop)
 }
 
+@Test func preservedProcessKeepsWritingAfterSupervisorIsReleased() async throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let executable = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appending(path: ".build/debug/ModeRunner")
+    let marker = directory.appending(path: "completed")
+    var supervisor: ProcessSupervisor? = ProcessSupervisor { _ in }
+    let pid = try await supervisor!.start(runID: "preserved", spec: LaunchSpec(
+        executable: "/bin/sh",
+        arguments: ["-c", "sleep 0.3; dd if=/dev/zero bs=65536 count=16; dd if=/dev/zero bs=65536 count=16 >&2; touch completed"],
+        cwd: directory.path, environment: [:]
+    ))
+    defer { killpg(pid, SIGKILL) }
+    try await supervisor!.preserveOutput(executablePath: executable.path)
+    supervisor = nil
+    for _ in 0..<100 {
+        if FileManager.default.fileExists(atPath: marker.path) { break }
+        try await Task.sleep(for: .milliseconds(20))
+    }
+    #expect(FileManager.default.fileExists(atPath: marker.path))
+}
+
+@Test func failedOutputPreservationDoesNotStopProcess() async throws {
+    let supervisor = ProcessSupervisor { _ in }
+    let pid = try await supervisor.start(runID: "preserved", spec: LaunchSpec(
+        executable: "/bin/sleep", arguments: ["30"], cwd: nil, environment: [:]
+    ))
+    do {
+        try await supervisor.preserveOutput(executablePath: "/nonexistent/ModeRunner")
+        Issue.record("Expected output preservation to fail")
+    } catch {
+        #expect(kill(pid, 0) == 0)
+    }
+    await supervisor.stopAll(policy: .init(sigkill: true))
+}
+
 private final class EventCollector: @unchecked Sendable {
     private let lock = NSLock()
     private var events: [ProcessEvent] = []

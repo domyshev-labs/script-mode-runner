@@ -1,4 +1,5 @@
 import AppKit
+import ModeRunnerCore
 import SwiftUI
 
 @MainActor
@@ -8,6 +9,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let mainPopover = NSPopover()
     private let startupPopover = NSPopover()
     private var startupTask: Task<Void, Never>?
+    private var pendingAction: RunnerAction?
+    private var terminateProcesses = false
+    private var preparingTermination = false
+    private var readyToTerminate = false
+    private var exitWatchdog: Process?
+
+    func perform(_ action: RunnerAction, terminateProcesses: Bool) {
+        guard !preparingTermination else { return }
+        pendingAction = action
+        self.terminateProcesses = terminateProcesses
+        beginTermination(NSApplication.shared)
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let state = AppState()
@@ -68,20 +81,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        startupTask?.cancel()
-        guard let state else { return .terminateNow }
-        Task {
-            await state.shutdown()
-            sender.reply(toApplicationShouldTerminate: true)
-        }
-        return .terminateLater
+        if readyToTerminate || state == nil { return .terminateNow }
+        beginTermination(sender)
+        // Keep servicing the normal event loop while asynchronous cleanup runs.
+        return .terminateCancel
     }
+
+    private func beginTermination(_ sender: NSApplication) {
+        guard !preparingTermination, let state else { return }
+        preparingTermination = true
+        startupTask?.cancel()
+        startupPopover.close()
+        mainPopover.close()
+        let executablePath = Bundle.main.executableURL?.path ?? CommandLine.arguments[0]
+        do {
+            exitWatchdog = try RunnerExitWatchdog.launch(
+                pid: ProcessInfo.processInfo.processIdentifier,
+                action: pendingAction ?? .poweroff, executablePath: executablePath
+            )
+        } catch {
+            reportTerminationFailure(error)
+            return
+        }
+        Task {
+            do {
+                if terminateProcesses { await state.shutdown() }
+                else { try await state.preserveProcesses(executablePath: executablePath) }
+                readyToTerminate = true
+                sender.terminate(nil)
+            } catch {
+                reportTerminationFailure(error)
+            }
+        }
+    }
+
+    private func reportTerminationFailure(_ error: Error) {
+        if exitWatchdog?.isRunning == true { exitWatchdog?.terminate() }
+        exitWatchdog = nil
+        preparingTermination = false
+        pendingAction = nil
+        terminateProcesses = false
+        let alert = NSAlert()
+        alert.messageText = "Could not close Mode Runner"
+        alert.informativeText = error.localizedDescription
+        alert.runModal()
+    }
+
 }
 
 @main
 @MainActor
 enum ModeRunnerApp {
     static func main() {
+        if CommandLine.arguments.contains("--drain-process-output") {
+            ProcessSupervisor.drainInheritedOutput()
+            return
+        }
         let application = NSApplication.shared
         let delegate = AppDelegate()
         application.setActivationPolicy(.accessory)

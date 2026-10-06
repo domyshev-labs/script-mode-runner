@@ -57,6 +57,9 @@ public actor ProcessSupervisor {
         guard pipe(&stdoutPipe) == 0, pipe(&stderrPipe) == 0 else {
             throw ProcessSupervisorError.spawnFailed(spec.executable, errno)
         }
+        for descriptor in stdoutPipe + stderrPipe {
+            _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC)
+        }
 
         var actions: posix_spawn_file_actions_t?
         posix_spawn_file_actions_init(&actions)
@@ -122,6 +125,49 @@ public actor ProcessSupervisor {
         let ids = Array(processes.keys)
         await withTaskGroup(of: Void.self) { group in
             for id in ids { group.addTask { await self.stop(runID: id, policy: policy) } }
+        }
+    }
+
+    public func preserveOutput(executablePath: String) throws {
+        // Keep both pipes readable after the UI exits so writers never receive SIGPIPE.
+        for process in processes.values {
+            var actions: posix_spawn_file_actions_t?
+            posix_spawn_file_actions_init(&actions)
+            defer { posix_spawn_file_actions_destroy(&actions) }
+            posix_spawn_file_actions_adddup2(&actions, process.stdout.fileDescriptor, 0)
+            posix_spawn_file_actions_adddup2(&actions, process.stderr.fileDescriptor, 3)
+            var attributes: posix_spawnattr_t?
+            posix_spawnattr_init(&attributes)
+            defer { posix_spawnattr_destroy(&attributes) }
+            posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT))
+            posix_spawnattr_setpgroup(&attributes, 0)
+            var pid: pid_t = 0
+            let result = withCStringArray([executablePath, "--drain-process-output"]) { argv in
+                withCStringArray(ProcessInfo.processInfo.environment.map { "\($0.key)=\($0.value)" }) { envp in
+                    posix_spawn(&pid, executablePath, &actions, &attributes, argv, envp)
+                }
+            }
+            guard result == 0 else { throw ProcessSupervisorError.spawnFailed(executablePath, result) }
+        }
+    }
+
+    public nonisolated static func drainInheritedOutput() {
+        var descriptors = [pollfd(fd: 0, events: Int16(POLLIN), revents: 0),
+                           pollfd(fd: 3, events: Int16(POLLIN), revents: 0)]
+        var bytes = [UInt8](repeating: 0, count: 8192)
+        while descriptors.contains(where: { $0.fd >= 0 }) {
+            let result = poll(&descriptors, nfds_t(descriptors.count), -1)
+            if result < 0 {
+                if errno == EINTR { continue }
+                break
+            }
+            for index in descriptors.indices where descriptors[index].fd >= 0 && descriptors[index].revents != 0 {
+                let count = read(descriptors[index].fd, &bytes, bytes.count)
+                if count == 0 || (count < 0 && errno != EINTR && errno != EAGAIN) {
+                    close(descriptors[index].fd)
+                    descriptors[index].fd = -1
+                }
+            }
         }
     }
 
