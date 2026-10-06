@@ -414,3 +414,90 @@ private func waitUntil(_ condition: () -> Bool) async throws {
     #expect(state.seedIsRunning(button))
     await state.shutdown()
 }
+
+@MainActor
+@Test func selectingModeDoesNotStartStopOrRestartProcesses() async throws {
+    let config = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: config) }
+    try """
+    tabs:
+      - id: test
+        title: Test
+        buttons:
+          - id: primary
+            title: Primary
+            on_deactivate: {sigkill: true}
+            scripts:
+              - {id: server, title: Server, executable: /bin/sleep, arguments: [30]}
+          - id: secondary
+            title: Secondary
+            on_deactivate: {sigkill: true}
+            scripts:
+              - {id: server, title: Server, executable: /bin/sleep, arguments: [30]}
+    """.write(to: config, atomically: true, encoding: .utf8)
+    let state = AppState(configURL: config)
+    defer { Task { await state.shutdown() } }
+    let tab = try #require(state.selectedTab)
+    let primary = tab.buttons[0]
+    let secondary = tab.buttons[1]
+    state.selectMode(secondary, in: tab)
+    #expect(state.selectedMode(in: tab)?.id == secondary.id)
+    #expect(state.runs.isEmpty)
+    #expect(state.busyTabs.isEmpty)
+    state.startMode(primary, in: tab)
+    try await waitUntil { state.runningMode(in: tab)?.id == primary.id && state.busyTabs.isEmpty }
+    let run = try #require(state.runs.first)
+    let originalStatus = state.logs[run.id]?.status
+    state.selectMode(secondary, in: tab)
+    #expect(state.runningMode(in: tab)?.id == primary.id)
+    #expect(state.activeModes[tab.id] == primary.id)
+    #expect(state.logs[run.id]?.status == originalStatus)
+    #expect(state.runs.count == 1)
+    #expect(state.visibleScripts.isEmpty)
+    #expect(state.selectedOutputID == nil)
+    state.selectMode(primary, in: tab)
+    #expect(state.selectedOutputID == run.id)
+    #expect(state.logs[run.id]?.status == originalStatus)
+    state.selectMode(secondary, in: tab)
+    state.stopMode(primary, in: tab)
+    try await waitUntil { state.runningMode(in: tab) == nil && state.busyTabs.isEmpty }
+    #expect(state.selectedMode(in: tab)?.id == secondary.id)
+    await state.shutdown()
+}
+
+@MainActor
+@Test func projectOrderPersistsAcrossRelaunchAndConfigurationChanges() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let config = directory.appending(path: "config.yaml")
+    let suite = "ScriptModeRunnerTests/" + UUID().uuidString
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    func writeTabs(_ ids: [String], to url: URL) throws {
+        let tabs = ids.map { "  - {id: \($0), title: \($0), buttons: []}" }.joined(separator: "\n")
+        try ("tabs:\n" + tabs).write(to: url, atomically: true, encoding: .utf8)
+    }
+    try writeTabs(["one", "two", "three"], to: config)
+    let state = AppState(configURL: config, preferences: preferences)
+    state.selectedTabID = "two"
+    #expect(state.moveTab("one", to: "three"))
+    #expect(state.configuration?.tabs.map(\.id) == ["two", "three", "one"])
+    #expect(state.selectedTabID == "two")
+    #expect(!state.moveTab("missing", to: "two"))
+    #expect(!state.moveTab("two", to: "two"))
+    #expect(state.moveTab("one", to: "two"))
+    #expect(state.configuration?.tabs.map(\.id) == ["one", "two", "three"])
+    #expect(state.moveTab("three", to: "one"))
+    state.reload()
+    #expect(state.configuration?.tabs.map(\.id) == ["three", "one", "two"])
+    let relaunched = AppState(configURL: config, preferences: preferences)
+    #expect(relaunched.configuration?.tabs.map(\.id) == ["three", "one", "two"])
+    try writeTabs(["two", "four", "three"], to: config)
+    relaunched.reload()
+    #expect(relaunched.configuration?.tabs.map(\.id) == ["three", "two", "four"])
+    let otherConfig = directory.appending(path: "other.yaml")
+    try writeTabs(["two", "three"], to: otherConfig)
+    let independent = AppState(configURL: otherConfig, preferences: preferences)
+    #expect(independent.configuration?.tabs.map(\.id) == ["two", "three"])
+}

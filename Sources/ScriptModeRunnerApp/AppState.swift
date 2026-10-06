@@ -52,10 +52,13 @@ final class AppState: ObservableObject {
     let configURL: URL
     private let relay: EventRelay
     private let supervisor: ProcessSupervisor
+    private let preferences: UserDefaults
+    private var tabOrderKey: String { "projectTabOrder/\(configURL.standardizedFileURL.path)" }
     private var catalogTasks: [String: Task<Void, Never>] = [:]
 
-    init(configURL: URL = ConfigurationLoader.defaultURL) {
+    init(configURL: URL = ConfigurationLoader.defaultURL, preferences: UserDefaults = .standard) {
         self.configURL = configURL
+        self.preferences = preferences
         let relay = EventRelay()
         self.relay = relay
         supervisor = ProcessSupervisor { event in relay.receive(event) }
@@ -82,13 +85,24 @@ final class AppState: ObservableObject {
             let retained = configuration?.tabs.filter { old in
                 !loaded.tabs.contains { $0.id == old.id } && runs.contains { $0.tabID == old.id }
             } ?? []
-            configuration = RunnerConfiguration(tabs: loaded.tabs + retained)
+            let tabs = loaded.tabs + retained
+            let savedOrder = preferences.stringArray(forKey: tabOrderKey) ?? []
+            let positions = Dictionary(savedOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+            configuration = RunnerConfiguration(tabs: tabs.enumerated().sorted {
+                let left = positions[$0.element.id] ?? savedOrder.count + $0.offset
+                let right = positions[$1.element.id] ?? savedOrder.count + $1.offset
+                return left < right
+            }.map(\.element))
             errorMessage = nil
             if !configuration!.tabs.contains(where: { $0.id == selectedTabID }) { selectedTabID = configuration?.tabs.first?.id }
             for task in catalogTasks.values { task.cancel() }
             catalogTasks = [:]
             catalogs = [:]
             for tab in configuration!.tabs {
+                let modes = tab.buttons.filter { $0.source == nil }
+                if !modes.contains(where: { $0.id == viewedModes[tab.id] }) {
+                    viewedModes[tab.id] = modes.first?.id
+                }
                 for button in tab.buttons where button.source != nil { refreshCatalog(button, in: tab) }
             }
             selectVisibleOutput()
@@ -135,6 +149,23 @@ final class AppState: ObservableObject {
         return .idle
     }
 
+    func moveTab(_ sourceID: String, to targetID: String) -> Bool {
+        guard var tabs = configuration?.tabs,
+              let source = tabs.firstIndex(where: { $0.id == sourceID }),
+              let target = tabs.firstIndex(where: { $0.id == targetID }), source != target else { return false }
+        let tab = tabs.remove(at: source)
+        tabs.insert(tab, at: target)
+        configuration = RunnerConfiguration(tabs: tabs)
+        preferences.set(tabs.map(\.id), forKey: tabOrderKey)
+        return true
+    }
+
+    func selectMode(_ mode: RunnerMode, in tab: RunnerTab) {
+        guard mode.source == nil, tab.buttons.contains(where: { $0.id == mode.id }) else { return }
+        viewedModes[tab.id] = mode.id
+        selectVisibleOutput()
+    }
+
     func selectedMode(in tab: RunnerTab) -> RunnerMode? {
         let modes = tab.buttons.filter { $0.source == nil }
         return modes.first { $0.id == viewedModes[tab.id] } ?? modes.first
@@ -150,6 +181,8 @@ final class AppState: ObservableObject {
 
     func startMode(_ mode: RunnerMode, in tab: RunnerTab) {
         guard runningMode(in: tab)?.id != mode.id else { return }
+        guard !busyTabs.contains(tab.id) else { return }
+        selectMode(mode, in: tab)
         transition(mode, in: tab, startAfterStop: true)
     }
 

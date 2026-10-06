@@ -32,7 +32,12 @@ SCRIPT_MODE_RUNNER_CONFIG="$PWD/Examples/test-apps.yaml" swift run ScriptModeRun
 ## MVP behavior
 
 - Modes within the same top-level tab are mutually exclusive.
+- Selecting a mode changes the displayed logs without starting or stopping processes.
+- Use the controls beside the mode selector to start the selected mode, restart it,
+  or stop the running mode. Starting a different mode stops the previous one first.
 - Switching top-level tabs does not deactivate a mode.
+- Drag project tabs onto one another to change their order. The order is saved
+  locally for each configuration file and restored when the app starts again.
 - Reloading preserves running processes while updating the configuration shown in the UI.
 - On normal exit, the app stops managed process groups.
 - The app keeps at most 5 MB of output per process in memory.
