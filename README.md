@@ -12,7 +12,7 @@ For setup and installation on another Mac, see [INSTALL.md](INSTALL.md).
 
 A command can use an `executable`/`arguments` pair or a `command` string executed through a shell. Yarn, npm, Python, local binaries, and other programs are handled the same way.
 
-A complete `.app` build with signing and notarization requires Xcode. The current Swift Package build is intended for development and testing the runner.
+Run `./Scripts/install.sh` to build a locally signed `.app` with a custom Finder and Spotlight icon. A three-second popover points to the menu bar icon on startup.
 
 ## Test applications
 
@@ -40,24 +40,28 @@ SCRIPT_MODE_RUNNER_CONFIG="$PWD/Examples/test-apps.yaml" swift run ScriptModeRun
 ## Command menus and logs
 
 Buttons with a `source` show a menu instead of switching modes. Selecting an
-item opens an independent log tab and leaves the current mode running. Repeat
+item opens a log tab in the current mode context and leaves the mode running. Repeat
 script selections create new runs; seed selections cannot overlap in the same
-working directory. Completed logs remain available until closed. Use **Stop**
-to stop a running command, **Close** on a completed tab, and **Clear** to clear
+working directory. Completed menu logs remain available in that context until closed. Mode logs show only the selected mode, with one tab per configured script; restarting shows its newest run. Stopping or finishing a mode keeps its last logs visible. Use **Stop**
+to stop a running command, **Reload** immediately to its left to restart only that
+command with fresh output, **Close** on a completed tab, and **Clear** to clear
 its output. Log tabs show the launch command, truncate long titles, and expose
 the full command in a tooltip.
 
-HTTP and HTTPS links in logs open with a normal left click in the default
-browser. The browser controls whether to use a tab or window. ANSI color and
+HTTP and HTTPS links in logs show a pointing-hand cursor and open with a normal
+left click in the default browser. While the selected process is running, its
+latest detected URL also appears as a shortcut below the status line. The shortcut
+updates with output and disappears when the process stops or its log is cleared. The browser controls whether to use a tab or window. ANSI color and
 terminal hyperlink control sequences are removed from the displayed text.
 
-Mode buttons are green while all their processes are running, orange while
-starting/stopping or when only some processes remain, and red after an
-unexpected failure. A user stop returns the button to its normal color. This
-tracks foreground processes launched by the app, not HTTP readiness, external
-processes, or detached daemons. Commands that launch a server should keep it in
-the foreground. Existing mode buttons remain mutually exclusive within a
-project tab; menu commands run independently.
+Mode and menu buttons use the same compact height and a neutral border. Menu
+buttons size to their label; longer command titles appear only in the open menu.
+Play is green and Stop is red. A spinner indicates starting or stopping; process
+status and failures remain visible in the selected log. This tracks foreground
+processes launched by the app, not HTTP readiness, external processes, or detached
+daemons. Commands that launch a server should keep it in the foreground. Existing
+mode buttons remain mutually exclusive within a project tab; menu commands run
+independently.
 
 ### package.json scripts
 
@@ -84,7 +88,7 @@ Button `environment` applies to catalog commands and selected runs.
 
 `margin_left` and `margin_right` are finite nonnegative numbers in macOS points,
 defaulting to zero. These are external margins and add to the row's 8-point gap.
-Rows scroll horizontally when buttons do not fit.
+Set `align: right` to place a button at the right edge; omitted `align` defaults to `left`. Order is preserved within each alignment group. Rows scroll horizontally when buttons do not fit.
 
 ### Seed catalogs
 
@@ -104,6 +108,7 @@ stdout contains only a JSON array. Each item has a unique `id`, `title`, and
 buttons:
   - id: seeds
     title: Seeds
+    align: right
     cwd: ~/projects/my-app
     runner: [yarn, mock:seed]
     source:
@@ -125,6 +130,7 @@ CLI or opening its database:
 buttons:
   - id: seeds
     title: Seeds
+    align: right
     cwd: /path/to/ui2
     runner: [yarn, mock:seed]
     source:

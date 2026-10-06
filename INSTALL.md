@@ -119,7 +119,7 @@ The mock frontend requests `/api/test-data` from its paired backend. The web pag
 
 ## Launching the installed app
 
-Open `~/Applications/Script Mode Runner.app` in Finder. Its terminal icon appears in the macOS menu bar; the app does not create a Dock icon.
+Open `~/Applications/Script Mode Runner.app` in Finder. A three-second startup popover points to its terminal icon in the macOS menu bar. The installed bundle includes an app icon for Finder and Spotlight; the app does not create a Dock icon.
 
 Because this is a locally built, ad-hoc-signed application, another Mac may ask for confirmation the first time it is opened. A public build should use a Developer ID signature and Apple notarization instead.
 
@@ -131,4 +131,4 @@ Pull or copy the newer source tree and rerun:
 ./Scripts/install.sh
 ```
 
-The installer replaces the executable and metadata inside the existing local app bundle. It does not overwrite the user's YAML configuration.
+The installer replaces the executable, icon, and metadata inside the existing local app bundle. It refreshes Launch Services registration and Spotlight metadata so in-place updates can be discovered. Spotlight may retain its displayed icon until the search is reopened. It does not overwrite the user's YAML configuration.
