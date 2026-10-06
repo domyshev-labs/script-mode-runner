@@ -501,3 +501,19 @@ private func waitUntil(_ condition: () -> Bool) async throws {
     let independent = AppState(configURL: otherConfig, preferences: preferences)
     #expect(independent.configuration?.tabs.map(\.id) == ["two", "three"])
 }
+
+@MainActor
+@Test func projectDragTargetsFollowTabLayoutAndRejectOutsideDrops() {
+    let tabs = ["one", "two", "three"].map { RunnerTab(id: $0, title: $0, buttons: []) }
+    #expect(projectTabID(at: CGPoint(x: 0, y: 12), width: 656, tabs: tabs) == "one")
+    #expect(projectTabID(at: CGPoint(x: 219, y: 12), width: 656, tabs: tabs) == "one")
+    #expect(projectTabID(at: CGPoint(x: 220, y: 12), width: 656, tabs: tabs) == "two")
+    #expect(projectTabID(at: CGPoint(x: 440, y: 12), width: 656, tabs: tabs) == "three")
+    #expect(projectTabID(at: CGPoint(x: 655, y: 24), width: 656, tabs: tabs) == "three")
+    #expect(projectTabID(at: CGPoint(x: -1, y: 12), width: 656, tabs: tabs) == nil)
+    #expect(projectTabID(at: CGPoint(x: 656, y: 12), width: 656, tabs: tabs) == nil)
+    #expect(projectTabID(at: CGPoint(x: 100, y: 25), width: 656, tabs: tabs) == nil)
+    #expect(projectTabID(at: CGPoint(x: 100, y: -1), width: 656, tabs: tabs) == nil)
+    #expect(projectTabID(at: .zero, width: 0, tabs: tabs) == nil)
+    #expect(projectTabID(at: .zero, width: 656, tabs: []) == nil)
+}

@@ -16,6 +16,8 @@ struct MainPopoverView: View {
     @State private var reloadHelpTask: Task<Void, Never>?
     @State private var pendingParameter: ParameterSelection?
     @State private var parameterValue = ""
+    @State private var draggedProjectID: String?
+    @State private var dropTargetProjectID: String?
 
     var body: some View {
         VStack(spacing: 10) {
@@ -36,6 +38,8 @@ struct MainPopoverView: View {
         .onDisappear {
             reloadHelpTask?.cancel()
             showReloadHelp = false
+            draggedProjectID = nil
+            dropTargetProjectID = nil
         }
         .sheet(item: $pendingParameter) { selection in
             VStack(alignment: .leading, spacing: 12) {
@@ -124,15 +128,34 @@ struct MainPopoverView: View {
 
     @ViewBuilder
     private func content(_ config: RunnerConfiguration) -> some View {
-        HStack(spacing: 2) {
-            ForEach(config.tabs) { tab in
-                ProjectTabView(tab: tab, selected: state.selectedTabID == tab.id,
-                               select: { state.selectedTabID = tab.id },
-                               move: { state.moveTab($0, to: tab.id) })
+        GeometryReader { geometry in
+            let width = geometry.size.width - 4
+            HStack(spacing: 2) {
+                ForEach(config.tabs) { tab in
+                    ProjectTabView(tab: tab, selected: state.selectedTabID == tab.id,
+                                   dragging: draggedProjectID == tab.id,
+                                   dropTarget: dropTargetProjectID == tab.id && draggedProjectID != tab.id,
+                                   select: { state.selectedTabID = tab.id },
+                                   dragChanged: { location in
+                                       draggedProjectID = tab.id
+                                       dropTargetProjectID = projectTabID(at: location, width: width, tabs: config.tabs)
+                                   },
+                                   dragEnded: { location in
+                                       if let target = projectTabID(at: location, width: width, tabs: config.tabs) {
+                                           _ = state.moveTab(tab.id, to: target)
+                                       }
+                                       draggedProjectID = nil
+                                       dropTargetProjectID = nil
+                                   })
+                    .frame(maxWidth: .infinity)
+                    .zIndex(draggedProjectID == tab.id ? 1 : 0)
+                }
             }
+            .coordinateSpace(name: "projectTabs")
+            .padding(2)
+            .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 7))
         }
-        .padding(2)
-        .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 7))
+        .frame(height: 28)
         if let tab = state.selectedTab {
             GeometryReader { geometry in
                 ScrollView(.horizontal) {
@@ -382,32 +405,51 @@ private struct ModeControlButton: View {
 private struct ProjectTabView: View {
     let tab: RunnerTab
     let selected: Bool
+    let dragging: Bool
+    let dropTarget: Bool
     let select: () -> Void
-    let move: (String) -> Bool
-    @State private var dropTarget = false
+    let dragChanged: (CGPoint) -> Void
+    let dragEnded: (CGPoint) -> Void
+    @GestureState private var dragOffset: CGSize = .zero
 
     var body: some View {
-        Button(action: select) {
-            Text(tab.title)
-                .font(.system(size: 13, weight: selected ? .semibold : .regular))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 4)
-                .background(selected ? Color(nsColor: .controlBackgroundColor) : Color.clear,
-                            in: RoundedRectangle(cornerRadius: 5))
-                .overlay(RoundedRectangle(cornerRadius: 5)
-                    .strokeBorder(dropTarget ? Color.accentColor : Color.clear, lineWidth: 2))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(selected ? [.isSelected] : [])
-        .help("Select \(tab.title). Drag to reorder projects.")
-        .draggable("script-mode-runner-tab/" + tab.id)
-        .dropDestination(for: String.self) { items, _ in
-            let prefix = "script-mode-runner-tab/"
-            guard items.count == 1, let item = items.first, item.hasPrefix(prefix) else { return false }
-            return move(String(item.dropFirst(prefix.count)))
-        } isTargeted: { dropTarget = $0 }
+        label
+            .onTapGesture(perform: select)
+            .gesture(dragGesture)
+            .offset(x: dragOffset.width)
+            .opacity(dragging ? 0.85 : 1)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(tab.title)
+            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : [.isButton])
+            .accessibilityAction { select() }
+            .help("Select \(tab.title). Hold the mouse button and drag left or right to reorder projects.")
     }
+
+    private var label: some View {
+        Text(tab.title)
+            .font(.system(size: 13, weight: selected ? .semibold : .regular))
+            .lineLimit(1)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(selected || dragging ? Color(nsColor: .controlBackgroundColor) : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 5))
+            .overlay(RoundedRectangle(cornerRadius: 5)
+                .strokeBorder(dropTarget ? Color.accentColor : Color.clear, lineWidth: 2))
+            .contentShape(Rectangle())
+    }
+
+    private var dragGesture: some Gesture {
+        DragGesture(minimumDistance: 5, coordinateSpace: .named("projectTabs"))
+            .updating($dragOffset) { value, offset, _ in offset = value.translation }
+            .onChanged { dragChanged($0.location) }
+            .onEnded { dragEnded($0.location) }
+    }
+}
+
+func projectTabID(at location: CGPoint, width: CGFloat, tabs: [RunnerTab]) -> String? {
+    guard !tabs.isEmpty, width > 0, location.x >= 0, location.x < width,
+          location.y >= 0, location.y <= 24 else { return nil }
+    let segmentWidth = (width + 2) / CGFloat(tabs.count)
+    return tabs[min(Int(location.x / segmentWidth), tabs.count - 1)].id
 }
