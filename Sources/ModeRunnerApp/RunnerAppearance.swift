@@ -3,19 +3,20 @@ import SwiftUI
 
 // Use the system renderer so newer macOS versions supply their current glass appearance.
 struct RunnerGlassGroup<Content: View>: View {
+    var spacing: CGFloat = 8
     @ViewBuilder var content: () -> Content
 
     var body: some View {
         if #available(macOS 26, *) {
-            GlassEffectContainer(spacing: 8, content: content)
+            GlassEffectContainer(spacing: spacing, content: content)
         } else {
             content()
         }
     }
 }
 
-private struct RunnerGlass: ViewModifier {
-    var radius: CGFloat
+private struct RunnerGlass<Surface: Shape>: ViewModifier {
+    var shape: Surface
     var tint: Color?
     var interactive: Bool
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -23,25 +24,66 @@ private struct RunnerGlass: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         if reduceTransparency || contrast == .increased {
             content
                 .background(Color(nsColor: .controlBackgroundColor), in: shape)
-                .overlay(shape.strokeBorder(Color.primary.opacity(0.25)))
+                .overlay(shape.stroke(Color.primary.opacity(0.25)))
         } else if #available(macOS 26, *) {
             content.glassEffect(.regular.tint(tint).interactive(interactive), in: shape)
         } else {
             content
                 .background((tint ?? .clear).opacity(0.12), in: shape)
                 .background(.regularMaterial, in: shape)
-                .overlay(shape.strokeBorder(Color.primary.opacity(0.1)))
+                .overlay(shape.stroke(Color.primary.opacity(0.1)))
         }
     }
 }
 
 extension View {
     func runnerGlass(radius: CGFloat = 12, tint: Color? = nil, interactive: Bool = false) -> some View {
-        modifier(RunnerGlass(radius: radius, tint: tint, interactive: interactive))
+        runnerGlass(in: RoundedRectangle(cornerRadius: radius, style: .continuous), tint: tint, interactive: interactive)
+    }
+
+    func runnerGlass<Surface: Shape>(in shape: Surface, tint: Color? = nil, interactive: Bool = false) -> some View {
+        modifier(RunnerGlass(shape: shape, tint: tint, interactive: interactive))
+    }
+}
+
+// Both side edges lean to the right at the top, like a slash.
+struct SlantedTabShape: Shape {
+    var slant: CGFloat = 10
+
+    func path(in rect: CGRect) -> Path {
+        let inset = min(slant, rect.width / 2)
+        return Path { path in
+            path.move(to: CGPoint(x: rect.minX + inset, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX - inset, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+            path.closeSubpath()
+        }
+    }
+}
+
+struct LogActionButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HoverLabel(label: configuration.label, pressed: configuration.isPressed)
+    }
+
+    private struct HoverLabel: View {
+        let label: ButtonStyleConfiguration.Label
+        let pressed: Bool
+        @State private var hovered = false
+        @Environment(\.isEnabled) private var enabled
+
+        var body: some View {
+            label
+                .padding(.horizontal, 6).padding(.vertical, 3)
+                .background(Color.primary.opacity(enabled && (hovered || pressed) ? 0.12 : 0),
+                            in: RoundedRectangle(cornerRadius: 5))
+                .contentShape(RoundedRectangle(cornerRadius: 5))
+                .onHover { hovered = $0 }
+        }
     }
 }
 

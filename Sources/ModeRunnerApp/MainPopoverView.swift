@@ -130,7 +130,7 @@ struct MainPopoverView: View {
         GeometryReader { geometry in
             let width = geometry.size.width - 6
             RunnerGlassGroup {
-              HStack(spacing: 2) {
+              HStack(spacing: -10) {
                 ForEach(config.tabs) { tab in
                     ProjectTabView(tab: tab, selected: state.selectedTabID == tab.id,
                                    running: state.runningMode(in: tab) != nil,
@@ -139,10 +139,10 @@ struct MainPopoverView: View {
                                    select: { state.selectedTabID = tab.id },
                                    dragChanged: { location in
                                        draggedProjectID = tab.id
-                                       dropTargetProjectID = projectTabID(at: location, width: width, tabs: config.tabs, height: 29)
+                                       dropTargetProjectID = projectTabID(at: location, width: width, tabs: config.tabs, height: 29, spacing: -10, slant: 10)
                                    },
                                    dragEnded: { location in
-                                       if let target = projectTabID(at: location, width: width, tabs: config.tabs, height: 29) {
+                                       if let target = projectTabID(at: location, width: width, tabs: config.tabs, height: 29, spacing: -10, slant: 10) {
                                            _ = state.moveTab(tab.id, to: target)
                                        }
                                        draggedProjectID = nil
@@ -155,13 +155,14 @@ struct MainPopoverView: View {
               .coordinateSpace(name: "projectTabs")
             }
             .padding(3)
-            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 13))
+            .background(Color.primary.opacity(0.04), in: SlantedTabShape(slant: 12))
+            .overlay(SlantedTabShape(slant: 12).stroke(Color.primary.opacity(0.12)))
         }
         .frame(height: 35)
         if let tab = state.selectedTab {
             GeometryReader { geometry in
                 ScrollView(.horizontal) {
-                    RunnerGlassGroup {
+                    RunnerGlassGroup(spacing: 0) {
                       HStack(spacing: 8) {
                         modeControls(tab)
                         alignedButtons(tab, alignment: .left)
@@ -209,20 +210,25 @@ struct MainPopoverView: View {
                     }
                 } label: {
                     HStack(spacing: 5) {
-                        if running?.id == selected.id && !busy {
-                            Image(systemName: "play.circle.fill").foregroundStyle(.green)
+                        Group {
+                            if busy { ProgressView().controlSize(.mini) }
+                            else {
+                                Image(systemName: running?.id == selected.id ? "play.circle.fill" : "stop.circle.fill")
+                                    .foregroundStyle(running?.id == selected.id ? Color.green : Color.secondary)
+                            }
                         }
-                        Text(selected.title)
-                        if busy { ProgressView().controlSize(.mini) }
+                        .frame(width: 12, height: 12)
+                        Text(selected.title).lineLimit(1).truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
                 .menuStyle(.borderlessButton)
-                .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, 10)
-                .frame(height: 27)
+                .frame(width: 96, height: 27)
                 .runnerGlass(radius: 10, tint: running?.id == selected.id ? .green.opacity(0.12) : nil, interactive: true)
+                .help(selected.title)
                 .disabled(busy)
-                HStack(spacing: 4) {
+                HStack(spacing: 8) {
                     ModeControlButton(symbol: "play.fill", tint: .green,
                                       help: "Start \(selected.title)", enabled: !busy && running?.id != selected.id) {
                         state.startMode(selected, in: tab)
@@ -305,9 +311,10 @@ struct MainPopoverView: View {
                                         .buttonStyle(.plain).help("Close completed log").accessibilityLabel("Close " + run.script.title)
                                 }
                             }
-                            .font(.system(size: 12, weight: state.selectedOutputID == run.id ? .semibold : .regular))
-                            .padding(.horizontal, 12).padding(.vertical, 9)
-                            .runnerGlass(tint: state.selectedOutputID == run.id ? .accentColor.opacity(0.18) : nil,
+                            .font(.system(size: 10.5, weight: state.selectedOutputID == run.id ? .semibold : .regular))
+                            .padding(.horizontal, 10)
+                            .frame(height: 22)
+                            .runnerGlass(radius: 7, tint: state.selectedOutputID == run.id ? .accentColor.opacity(0.18) : nil,
                                          interactive: true)
                             .help(run.script.displayCommand).id(run.id)
                         }
@@ -338,7 +345,7 @@ struct MainPopoverView: View {
                     Button("Clear") { state.clearSelectedLog() }
                 }
                 .controlSize(.small)
-                .buttonStyle(.borderless)
+                .buttonStyle(LogActionButtonStyle())
                 .padding(.horizontal, 4)
                 if let url = log.latestRunningLink {
                     Link(destination: url) {
@@ -445,9 +452,10 @@ private struct ProjectTabView: View {
             .padding(.horizontal, 8)
             .frame(height: 29)
             .modifier(ProjectTabSurface(selected: selected || dragging))
-            .overlay(RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(dropTarget ? Color.accentColor : Color.clear, lineWidth: 2))
-            .contentShape(Rectangle())
+            .overlay(SlantedTabShape()
+                .stroke(dropTarget || selected ? Color.accentColor.opacity(0.7) : Color.primary.opacity(0.12),
+                        lineWidth: dropTarget ? 2 : 1))
+            .contentShape(SlantedTabShape())
     }
 
     private var dragGesture: some Gesture {
@@ -463,14 +471,19 @@ private struct ProjectTabSurface: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if selected { content.runnerGlass(radius: 10, tint: .accentColor.opacity(0.12), interactive: true) }
+        if selected { content.runnerGlass(in: SlantedTabShape(), tint: .accentColor.opacity(0.12), interactive: true) }
         else { content }
     }
 }
 
-func projectTabID(at location: CGPoint, width: CGFloat, tabs: [RunnerTab], height: CGFloat = 24) -> String? {
+func projectTabID(at location: CGPoint, width: CGFloat, tabs: [RunnerTab], height: CGFloat = 24,
+                  spacing: CGFloat = 2, slant: CGFloat = 0) -> String? {
     guard !tabs.isEmpty, width > 0, location.x >= 0, location.x < width,
           location.y >= 0, location.y <= height else { return nil }
-    let segmentWidth = (width + 2) / CGFloat(tabs.count)
-    return tabs[min(Int(location.x / segmentWidth), tabs.count - 1)].id
+    guard height > 0, width + spacing > 0 else { return nil }
+    let leftEdge = slant * (1 - location.y / height)
+    let rightEdge = width - slant * location.y / height
+    guard location.x >= leftEdge, location.x < rightEdge else { return nil }
+    let segmentWidth = (width + spacing) / CGFloat(tabs.count)
+    return tabs[min(Int((location.x - leftEdge) / segmentWidth), tabs.count - 1)].id
 }
