@@ -386,7 +386,7 @@ private struct ModeControlButton: View {
             Image(systemName: symbol)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(enabled ? tint : Color.secondary.opacity(0.5))
-                .frame(width: 16, height: 16)
+                .frame(width: 20, height: 20)
                 .background(tint.opacity(enabled ? (hovering ? 0.24 : 0.08) : 0),
                             in: RoundedRectangle(cornerRadius: 5))
                 .overlay(RoundedRectangle(cornerRadius: 5)
