@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import ScriptModeRunnerCore
+@testable import ModeRunnerCore
 
 @Test func testApplicationsConfigurationMatchesPackageScripts() throws {
     let root = repositoryRoot()

@@ -1,6 +1,6 @@
 # Test applications
 
-Three independent Yarn projects for manual and automated testing of Script Mode Runner. They have no third-party npm dependencies: the servers use Node.js's built-in `http` module.
+Three independent Yarn projects for manual and automated testing of Mode Runner. They have no third-party npm dependencies: the servers use Node.js's built-in `http` module.
 
 Ports:
 
@@ -15,5 +15,5 @@ Ports:
 To use these fixtures in the app, run it with the test configuration:
 
 ```bash
-SCRIPT_MODE_RUNNER_CONFIG="$PWD/Examples/test-apps.yaml" swift run ScriptModeRunner
+MODE_RUNNER_CONFIG="$PWD/Examples/test-apps.yaml" swift run ModeRunner
 ```

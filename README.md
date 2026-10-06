@@ -1,4 +1,4 @@
-# Script Mode Runner
+# Mode Runner
 
 A native macOS 14+ menu bar app that runs configured groups of commands and displays their output.
 
@@ -6,9 +6,14 @@ For setup and installation on another Mac, see [INSTALL.md](INSTALL.md).
 
 ## Quick start
 
-1. Create `~/.config/script-mode-runner/config.yaml` using `Examples/config.yaml` as a template.
-2. Build and run the app with `swift run ScriptModeRunner`.
+1. Create `~/.config/mode-runner/config.yaml` using `Examples/config.yaml` as a template.
+2. Build and run the app with `swift run ModeRunner`.
 3. Open the terminal icon in the menu bar.
+
+Existing configurations at `~/.config/script-mode-runner/config.yaml` remain
+supported when the new default path is absent. `MODE_RUNNER_CONFIG` selects a
+custom configuration; `SCRIPT_MODE_RUNNER_CONFIG` remains a compatible alias.
+The renamed app also imports locally saved project tab order.
 
 A command can use an `executable`/`arguments` pair or a `command` string executed through a shell. Yarn, npm, Python, local binaries, and other programs are handled the same way.
 
@@ -26,15 +31,39 @@ Working directories in YAML are resolved relative to the YAML file. This lets yo
 Run the app with the test configuration:
 
 ```bash
-SCRIPT_MODE_RUNNER_CONFIG="$PWD/Examples/test-apps.yaml" swift run ScriptModeRunner
+MODE_RUNNER_CONFIG="$PWD/Examples/test-apps.yaml" swift run ModeRunner
 ```
 
 ## MVP behavior
 
 - Modes within the same top-level tab are mutually exclusive.
+- Selecting a mode changes the displayed logs without starting or stopping processes.
+- Use the controls beside the mode selector to start the selected mode, restart it,
+  or stop the running mode. Starting a different mode stops the previous one first.
 - Switching top-level tabs does not deactivate a mode.
+- Drag project tabs onto one another to change their order. The order is saved
+  locally for each configuration file and restored when the app starts again.
 - Reloading preserves running processes while updating the configuration shown in the UI.
-- On normal exit, the app stops managed process groups.
+- The top-right hamburger menu offers **Reload configuration**, **Restart "Mode runner"**,
+  and **Poweroff "Mode runner"**. Hover over Reload configuration to see the file path.
+- Restart and poweroff require confirmation. **Terminate processes** is unchecked by
+  default; enable it to stop managed process groups before closing the app.
+  If exit hangs for six seconds, an independent watchdog forces the app to quit;
+  Restart then launches a replacement instance.
+- At startup and configuration reload, the app discovers existing mode processes
+  owned by the current user using their exact command and working directory. This
+  includes processes left by a previous app instance and matching terminal commands.
+  The detected mode is selected, its project tab gains a running indicator, and
+  Stop/Restart become available without launching duplicate processes.
+- Detection requires an explicit `cwd`. Ambiguous matches are left unmanaged;
+  a listening port alone does not establish which configured mode owns a process.
+  Common Yarn commands also match Node-based Yarn wrappers. Complex shell commands
+  match only while their exact shell invocation remains visible.
+- Stop checks PID and process start time before signalling an adopted process and
+  its descendants. It does not signal the terminal's entire process group.
+- Processes left running continue independently. Their output is drained after exit.
+  An adopted process shows an explanation instead of restored logs: existing stdout
+  and stderr are not captured, and its eventual exit code is unavailable.
 - The app keeps at most 5 MB of output per process in memory.
 
 ## Command menus and logs
@@ -50,16 +79,22 @@ the full command in a tooltip.
 
 HTTP and HTTPS links in logs show a pointing-hand cursor and open with a normal
 left click in the default browser. While the selected process is running, its
-latest detected URL also appears as a shortcut below the status line. The shortcut
-updates with output and disappears when the process stops or its log is cleared. The browser controls whether to use a tab or window. ANSI color and
+latest detected URL also appears as a shortcut below the status line. For adopted
+processes without captured output, a localhost shortcut is derived from an explicit
+port in the script title (such as `Dev · :3010`), a `--port` argument, or the `PORT`
+environment setting. URLs found in output take precedence. The shortcut disappears
+when the process stops; clearing output preserves a configured port shortcut.
+Adoption messages use a bold heading and separate lines for the absolute working
+directory, matching configured command, port, and detection date and local time,
+including its UTC offset. The browser controls whether to use a tab or window. ANSI color and
 terminal hyperlink control sequences are removed from the displayed text.
 
 Mode and menu buttons use the same compact height and a neutral border. Menu
 buttons size to their label; longer command titles appear only in the open menu.
 Play is green and Stop is red. A spinner indicates starting or stopping; process
 status and failures remain visible in the selected log. This tracks foreground
-processes launched by the app, not HTTP readiness, external processes, or detached
-daemons. Commands that launch a server should keep it in the foreground. Existing
+processes launched by the app and discovered foreground mode processes, rather
+than HTTP readiness or detached daemons. Commands that launch a server should keep it in the foreground. Existing
 mode buttons remain mutually exclusive within a project tab; menu commands run
 independently.
 
@@ -149,7 +184,7 @@ the same JSON contract once its seed list and launch command are available.
 Try the bundled menus with:
 
 ```bash
-SCRIPT_MODE_RUNNER_CONFIG="$PWD/Examples/dropdowns.yaml" swift run ScriptModeRunner
+MODE_RUNNER_CONFIG="$PWD/Examples/dropdowns.yaml" swift run ModeRunner
 ```
 
 The demo seed runner only prints arguments; it does not modify data. Completed

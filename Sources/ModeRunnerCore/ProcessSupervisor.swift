@@ -10,6 +10,7 @@ public enum ProcessStatus: Equatable, Sendable {
     case exited(code: Int32)
     case signalled(signal: Int32)
     case failed(message: String)
+    case unobservedExit
 }
 
 public enum ProcessEvent: Sendable {
@@ -41,6 +42,7 @@ public actor ProcessSupervisor {
     }
 
     private var processes: [String: RunningProcess] = [:]
+    private var adopted: [String: ProcessIdentity] = [:]
     private let eventHandler: EventHandler
 
     public init(eventHandler: @escaping EventHandler) {
@@ -49,13 +51,16 @@ public actor ProcessSupervisor {
 
     @discardableResult
     public func start(runID: String, spec: LaunchSpec) throws -> pid_t {
-        guard processes[runID] == nil else { throw ProcessSupervisorError.duplicateRun(runID) }
+        guard processes[runID] == nil, adopted[runID] == nil else { throw ProcessSupervisorError.duplicateRun(runID) }
         eventHandler(.status(runID: runID, status: .starting))
 
         var stdoutPipe: [Int32] = [0, 0]
         var stderrPipe: [Int32] = [0, 0]
         guard pipe(&stdoutPipe) == 0, pipe(&stderrPipe) == 0 else {
             throw ProcessSupervisorError.spawnFailed(spec.executable, errno)
+        }
+        for descriptor in stdoutPipe + stderrPipe {
+            _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC)
         }
 
         var actions: posix_spawn_file_actions_t?
@@ -106,6 +111,10 @@ public actor ProcessSupervisor {
     }
 
     public func stop(runID: String, policy: DeactivationPolicy) async {
+        if let identity = adopted[runID] {
+            await stopAdopted(runID: runID, identity: identity, policy: policy)
+            return
+        }
         guard let process = processes[runID] else { return }
         eventHandler(.status(runID: runID, status: .stopping))
         if policy.sigint { killpg(process.pid, SIGINT) }
@@ -119,9 +128,105 @@ public actor ProcessSupervisor {
     }
 
     public func stopAll(policy: DeactivationPolicy = .init(sigint: true, sigkill: true, timeout: .seconds(2))) async {
-        let ids = Array(processes.keys)
+        let ids = Array(processes.keys) + Array(adopted.keys)
         await withTaskGroup(of: Void.self) { group in
             for id in ids { group.addTask { await self.stop(runID: id, policy: policy) } }
+        }
+    }
+
+    public func adopt(runID: String, process: DiscoveredProcess) -> Bool {
+        guard processes[runID] == nil, adopted[runID] == nil, process.identity.isAlive,
+              !processes.values.contains(where: { $0.pid == process.identity.pid }),
+              !adopted.values.contains(process.identity) else { return false }
+        adopted[runID] = process.identity
+        eventHandler(.status(runID: runID, status: .running(pid: process.identity.pid)))
+        Task { [weak self] in
+            while process.identity.isAlive {
+                try? await Task.sleep(for: .milliseconds(200))
+                guard await self?.isAdopted(runID: runID, identity: process.identity) == true else { return }
+            }
+            await self?.adoptedDidExit(runID: runID, identity: process.identity)
+        }
+        return true
+    }
+
+    private func isAdopted(runID: String, identity: ProcessIdentity) -> Bool { adopted[runID] == identity }
+
+    private func adoptedDidExit(runID: String, identity: ProcessIdentity) {
+        guard adopted[runID] == identity else { return }
+        adopted[runID] = nil
+        eventHandler(.status(runID: runID, status: .unobservedExit))
+    }
+
+    private func stopAdopted(runID: String, identity: ProcessIdentity, policy: DeactivationPolicy) async {
+        guard identity.isAlive else { adoptedDidExit(runID: runID, identity: identity); return }
+        let snapshot = await Task.detached { DiscoveredProcess.snapshot() }.value
+        var targets = [identity]
+        var parents: Set<Int32> = [identity.pid]
+        var changed = true
+        while changed {
+            changed = false
+            for process in snapshot where parents.contains(process.parentPID) && !parents.contains(process.identity.pid) {
+                parents.insert(process.identity.pid)
+                targets.append(process.identity)
+                changed = true
+            }
+        }
+        guard identity.isAlive, adopted[runID] == identity else {
+            adoptedDidExit(runID: runID, identity: identity)
+            return
+        }
+        eventHandler(.status(runID: runID, status: .stopping))
+        // Never signal an external process group: it may include the user's terminal.
+        if policy.sigint {
+            for target in targets.reversed() where target.isAlive { kill(target.pid, SIGINT) }
+        }
+        if policy.sigkill {
+            if policy.sigint { try? await Task.sleep(for: .seconds(max(0, policy.timeout.seconds))) }
+            for target in targets.reversed() where target.isAlive { kill(target.pid, SIGKILL) }
+        }
+    }
+
+    public func preserveOutput(executablePath: String) throws {
+        // Keep both pipes readable after the UI exits so writers never receive SIGPIPE.
+        for process in processes.values {
+            var actions: posix_spawn_file_actions_t?
+            posix_spawn_file_actions_init(&actions)
+            defer { posix_spawn_file_actions_destroy(&actions) }
+            posix_spawn_file_actions_adddup2(&actions, process.stdout.fileDescriptor, 0)
+            posix_spawn_file_actions_adddup2(&actions, process.stderr.fileDescriptor, 3)
+            var attributes: posix_spawnattr_t?
+            posix_spawnattr_init(&attributes)
+            defer { posix_spawnattr_destroy(&attributes) }
+            posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT))
+            posix_spawnattr_setpgroup(&attributes, 0)
+            var pid: pid_t = 0
+            let result = withCStringArray([executablePath, "--drain-process-output"]) { argv in
+                withCStringArray(ProcessInfo.processInfo.environment.map { "\($0.key)=\($0.value)" }) { envp in
+                    posix_spawn(&pid, executablePath, &actions, &attributes, argv, envp)
+                }
+            }
+            guard result == 0 else { throw ProcessSupervisorError.spawnFailed(executablePath, result) }
+        }
+    }
+
+    public nonisolated static func drainInheritedOutput() {
+        var descriptors = [pollfd(fd: 0, events: Int16(POLLIN), revents: 0),
+                           pollfd(fd: 3, events: Int16(POLLIN), revents: 0)]
+        var bytes = [UInt8](repeating: 0, count: 8192)
+        while descriptors.contains(where: { $0.fd >= 0 }) {
+            let result = poll(&descriptors, nfds_t(descriptors.count), -1)
+            if result < 0 {
+                if errno == EINTR { continue }
+                break
+            }
+            for index in descriptors.indices where descriptors[index].fd >= 0 && descriptors[index].revents != 0 {
+                let count = read(descriptors[index].fd, &bytes, bytes.count)
+                if count == 0 || (count < 0 && errno != EINTR && errno != EAGAIN) {
+                    close(descriptors[index].fd)
+                    descriptors[index].fd = -1
+                }
+            }
         }
     }
 

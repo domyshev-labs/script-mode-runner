@@ -1,5 +1,5 @@
 import AppKit
-import ScriptModeRunnerCore
+import ModeRunnerCore
 import SwiftUI
 
 private struct ParameterSelection: Identifiable {
@@ -9,20 +9,16 @@ private struct ParameterSelection: Identifiable {
     let tab: RunnerTab
 }
 
-private struct ModeSwitchSelection {
-    let current: RunnerMode
-    let next: RunnerMode
-    let tab: RunnerTab
-}
-
 struct MainPopoverView: View {
     @ObservedObject var state: AppState
     @Environment(\.colorScheme) private var colorScheme
-    @State private var showReloadHelp = false
-    @State private var reloadHelpTask: Task<Void, Never>?
+    @State private var pendingRunnerAction: RunnerAction?
+    @State private var terminateProcesses = false
+    @State private var confirmedRunnerAction: RunnerAction?
     @State private var pendingParameter: ParameterSelection?
     @State private var parameterValue = ""
-    @State private var pendingModeSwitch: ModeSwitchSelection?
+    @State private var draggedProjectID: String?
+    @State private var dropTargetProjectID: String?
 
     var body: some View {
         VStack(spacing: 10) {
@@ -40,36 +36,33 @@ struct MainPopoverView: View {
         .padding(12)
         .frame(width: 680, height: 480)
         .background(windowBackground)
-        .overlay {
-            if let selection = pendingModeSwitch {
-                ZStack {
-                    Color.black.opacity(0.25)
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Switch mode?").font(.headline)
-                        Text("Stop \(selection.current.title) and start \(selection.next.title)?")
-                        HStack {
-                            Spacer()
-                            Button("Cancel") { pendingModeSwitch = nil }
-                                .keyboardShortcut(.cancelAction)
-                            Button("Yes") {
-                                state.startMode(selection.next, in: selection.tab)
-                                pendingModeSwitch = nil
-                            }
-                            .keyboardShortcut(.defaultAction)
-                            .disabled(state.busyTabs.contains(selection.tab.id))
-                        }
+        .onDisappear {
+            draggedProjectID = nil
+            dropTargetProjectID = nil
+        }
+        .sheet(item: $pendingRunnerAction, onDismiss: {
+            guard let action = confirmedRunnerAction else { return }
+            confirmedRunnerAction = nil
+            (NSApplication.shared.delegate as? AppDelegate)?.perform(action, terminateProcesses: terminateProcesses)
+        }) { action in
+            VStack(alignment: .leading, spacing: 16) {
+                Text(action.title + "?").font(.headline)
+                Text("Running processes will keep working unless you choose to terminate them.")
+                Toggle("Terminate processes", isOn: $terminateProcesses)
+                    .toggleStyle(.checkbox)
+                HStack {
+                    Spacer()
+                    Button("Cancel") { pendingRunnerAction = nil }
+                        .keyboardShortcut(.cancelAction)
+                    Button("Confirm") {
+                        confirmedRunnerAction = action
+                        pendingRunnerAction = nil
                     }
-                    .padding(20)
-                    .frame(width: 340)
-                    .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-                    .shadow(radius: 12)
+                    .keyboardShortcut(.defaultAction)
                 }
             }
-        }
-        .onDisappear {
-            reloadHelpTask?.cancel()
-            showReloadHelp = false
-            pendingModeSwitch = nil
+            .padding(20)
+            .frame(width: 380)
         }
         .sheet(item: $pendingParameter) { selection in
             VStack(alignment: .leading, spacing: 12) {
@@ -94,34 +87,13 @@ struct MainPopoverView: View {
 
     private var header: some View {
         HStack {
-            Text("Script Mode Runner").font(.headline)
+            Text("Mode Runner").font(.headline)
             Spacer()
-            Button("Reload", systemImage: "arrow.clockwise") {
-                reloadHelpTask?.cancel()
-                showReloadHelp = false
-                state.reload()
+            RunnerActionsMenu(configURL: state.configURL, reload: { state.reload() }) { action in
+                terminateProcesses = false
+                pendingRunnerAction = action
             }
-            .labelStyle(.iconOnly)
-            .accessibilityHint("Reread the configuration and refresh command catalogs")
-            .onHover { hovering in
-                reloadHelpTask?.cancel()
-                if hovering {
-                    reloadHelpTask = Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(350))
-                        guard !Task.isCancelled else { return }
-                        showReloadHelp = true
-                    }
-                } else { showReloadHelp = false }
-            }
-            .overlay(alignment: .topTrailing) {
-                if showReloadHelp {
-                    reloadHelp
-                        .offset(y: 30)
-                        .allowsHitTesting(false)
-                }
-            }
-            Button("Quit", systemImage: "power") { NSApplication.shared.terminate(nil) }
-                .labelStyle(.iconOnly)
+            .frame(width: 18, height: 18)
         }
     }
 
@@ -134,35 +106,37 @@ struct MainPopoverView: View {
         )
     }
 
-    private var reloadHelp: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Reload configuration", systemImage: "arrow.clockwise")
-                .font(.system(size: 13, weight: .semibold))
-            Text("Rereads the config file and refreshes command and seed catalogs. Running processes keep working.")
-                .font(.system(size: 12))
-                .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.94) : Color.primary)
-            Text(state.configURL.path)
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.8) : Color.secondary)
-                .textSelection(.disabled)
-        }
-        .foregroundStyle(colorScheme == .dark ? Color.white : Color.primary)
-        .padding(14)
-        .frame(width: 290, alignment: .leading)
-        .fixedSize(horizontal: false, vertical: true)
-        .background(colorScheme == .dark ? Color(red: 0.17, green: 0.21, blue: 0.28) : .white,
-                    in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.14), lineWidth: 1))
-        .shadow(color: .black.opacity(colorScheme == .dark ? 0.35 : 0.15), radius: 12, y: 5)
-    }
-
     @ViewBuilder
     private func content(_ config: RunnerConfiguration) -> some View {
-        Picker("Tab", selection: $state.selectedTabID) {
-            ForEach(config.tabs) { tab in Text(tab.title).tag(Optional(tab.id)) }
+        GeometryReader { geometry in
+            let width = geometry.size.width - 4
+            HStack(spacing: 2) {
+                ForEach(config.tabs) { tab in
+                    ProjectTabView(tab: tab, selected: state.selectedTabID == tab.id,
+                                   running: state.runningMode(in: tab) != nil,
+                                   dragging: draggedProjectID == tab.id,
+                                   dropTarget: dropTargetProjectID == tab.id && draggedProjectID != tab.id,
+                                   select: { state.selectedTabID = tab.id },
+                                   dragChanged: { location in
+                                       draggedProjectID = tab.id
+                                       dropTargetProjectID = projectTabID(at: location, width: width, tabs: config.tabs)
+                                   },
+                                   dragEnded: { location in
+                                       if let target = projectTabID(at: location, width: width, tabs: config.tabs) {
+                                           _ = state.moveTab(tab.id, to: target)
+                                       }
+                                       draggedProjectID = nil
+                                       dropTargetProjectID = nil
+                                   })
+                    .frame(maxWidth: .infinity)
+                    .zIndex(draggedProjectID == tab.id ? 1 : 0)
+                }
+            }
+            .coordinateSpace(name: "projectTabs")
+            .padding(2)
+            .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 7))
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
+        .frame(height: 28)
         if let tab = state.selectedTab {
             GeometryReader { geometry in
                 ScrollView(.horizontal) {
@@ -198,18 +172,12 @@ struct MainPopoverView: View {
     private func modeControls(_ tab: RunnerTab) -> some View {
         if let selected = state.selectedMode(in: tab) {
             let running = state.runningMode(in: tab)
-            let busy = state.busyTabs.contains(tab.id)
+            let busy = state.busyTabs.contains(tab.id) || state.discoveringProcesses
             HStack(spacing: 8) {
-                Text("Mode").foregroundStyle(.secondary)
                 Menu {
                     ForEach(tab.buttons.filter { $0.source == nil }) { mode in
                         Button {
-                            guard mode.id != running?.id else { return }
-                            if let running {
-                                pendingModeSwitch = ModeSwitchSelection(current: running, next: mode, tab: tab)
-                            } else {
-                                state.startMode(mode, in: tab)
-                            }
+                            state.selectMode(mode, in: tab)
                         } label: {
                             if selected.id == mode.id {
                                 Label(mode.title, systemImage: "checkmark")
@@ -233,24 +201,19 @@ struct MainPopoverView: View {
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.35), lineWidth: 1))
                 .disabled(busy)
                 HStack(spacing: 6) {
-                    Button { state.startMode(selected, in: tab) } label: {
-                        Image(systemName: "play.fill").foregroundStyle(running == nil && !busy ? Color.green : Color.secondary)
+                    ModeControlButton(symbol: "play.fill", tint: .green,
+                                      help: "Start \(selected.title)", enabled: !busy && running?.id != selected.id) {
+                        state.startMode(selected, in: tab)
                     }
-                    .help("Start \(selected.title)")
-                    .disabled(busy || running != nil)
-                    Button { state.restartMode(selected, in: tab) } label: {
-                        Image(systemName: "arrow.clockwise")
+                    ModeControlButton(symbol: "arrow.clockwise", tint: .accentColor,
+                                      help: "Restart \(selected.title)", enabled: !busy && running?.id == selected.id) {
+                        state.restartMode(selected, in: tab)
                     }
-                    .help("Restart \(selected.title)")
-                    .disabled(busy || running?.id != selected.id)
-                    Button { state.stopMode(selected, in: tab) } label: {
-                        Image(systemName: "stop.fill").foregroundStyle(running?.id == selected.id && !busy ? Color.red : Color.secondary)
+                    ModeControlButton(symbol: "stop.fill", tint: .red,
+                                      help: "Stop \(running?.title ?? selected.title)", enabled: !busy && running != nil) {
+                        if let running { state.stopMode(running, in: tab) }
                     }
-                    .help("Stop \(selected.title)")
-                    .disabled(busy || running?.id != selected.id)
                 }
-                .buttonStyle(.borderless)
-                .labelStyle(.iconOnly)
             }
             .font(.system(size: 13))
             .fixedSize(horizontal: true, vertical: false)
@@ -357,7 +320,7 @@ struct MainPopoverView: View {
                     .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
                     .background(PointingHandCursorRegion().allowsHitTesting(false))
                 }
-                LogTextView(text: log.buffer.string).id(id)
+                LogTextView(text: log.buffer.string, boldFirstLine: log.hasDetectionMessage).id(id)
                     .clipShape(RoundedRectangle(cornerRadius: 7))
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.primary.opacity(0.08), lineWidth: 1))
             }
@@ -389,4 +352,90 @@ private struct PointingHandCursorRegion: NSViewRepresentable {
             addCursorRect(bounds, cursor: .pointingHand)
         }
     }
+}
+
+private struct ModeControlButton: View {
+    let symbol: String
+    let tint: Color
+    let help: String
+    let enabled: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(enabled ? tint : Color.secondary.opacity(0.5))
+                .frame(width: 20, height: 20)
+                .background(tint.opacity(enabled ? (hovering ? 0.24 : 0.08) : 0),
+                            in: RoundedRectangle(cornerRadius: 5))
+                .overlay(RoundedRectangle(cornerRadius: 5)
+                    .strokeBorder(tint.opacity(enabled && hovering ? 0.5 : 0), lineWidth: 1))
+                .frame(width: 16, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .help(help)
+        .accessibilityLabel(help)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
+    }
+}
+
+private struct ProjectTabView: View {
+    let tab: RunnerTab
+    let selected: Bool
+    let running: Bool
+    let dragging: Bool
+    let dropTarget: Bool
+    let select: () -> Void
+    let dragChanged: (CGPoint) -> Void
+    let dragEnded: (CGPoint) -> Void
+    @GestureState private var dragOffset: CGSize = .zero
+
+    var body: some View {
+        label
+            .onTapGesture(perform: select)
+            .gesture(dragGesture)
+            .offset(x: dragOffset.width)
+            .opacity(dragging ? 0.85 : 1)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(tab.title)
+            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : [.isButton])
+            .accessibilityAction { select() }
+            .help("Select \(tab.title). Hold the mouse button and drag left or right to reorder projects.")
+    }
+
+    private var label: some View {
+        HStack(spacing: 5) {
+            if running { Circle().fill(.green).frame(width: 6, height: 6) }
+            Text(tab.title)
+        }
+            .font(.system(size: 13, weight: selected ? .semibold : .regular))
+            .lineLimit(1)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(selected || dragging ? Color(nsColor: .controlBackgroundColor) : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 5))
+            .overlay(RoundedRectangle(cornerRadius: 5)
+                .strokeBorder(dropTarget ? Color.accentColor : Color.clear, lineWidth: 2))
+            .contentShape(Rectangle())
+    }
+
+    private var dragGesture: some Gesture {
+        DragGesture(minimumDistance: 5, coordinateSpace: .named("projectTabs"))
+            .updating($dragOffset) { value, offset, _ in offset = value.translation }
+            .onChanged { dragChanged($0.location) }
+            .onEnded { dragEnded($0.location) }
+    }
+}
+
+func projectTabID(at location: CGPoint, width: CGFloat, tabs: [RunnerTab]) -> String? {
+    guard !tabs.isEmpty, width > 0, location.x >= 0, location.x < width,
+          location.y >= 0, location.y <= 24 else { return nil }
+    let segmentWidth = (width + 2) / CGFloat(tabs.count)
+    return tabs[min(Int(location.x / segmentWidth), tabs.count - 1)].id
 }

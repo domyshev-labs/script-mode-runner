@@ -3,31 +3,31 @@
 import PackageDescription
 
 let package = Package(
-    name: "ScriptModeRunner",
+    name: "ModeRunner",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "ScriptModeRunner", targets: ["ScriptModeRunnerApp"]),
-        .library(name: "ScriptModeRunnerCore", targets: ["ScriptModeRunnerCore"]),
+        .executable(name: "ModeRunner", targets: ["ModeRunnerApp"]),
+        .library(name: "ModeRunnerCore", targets: ["ModeRunnerCore"]),
     ],
     dependencies: [
         .package(url: "https://github.com/jpsim/Yams.git", from: "6.0.2"),
     ],
     targets: [
         .target(
-            name: "ScriptModeRunnerCore",
+            name: "ModeRunnerCore",
             dependencies: ["Yams"]
         ),
         .executableTarget(
-            name: "ScriptModeRunnerApp",
-            dependencies: ["ScriptModeRunnerCore"]
+            name: "ModeRunnerApp",
+            dependencies: ["ModeRunnerCore"]
         ),
         .testTarget(
-            name: "ScriptModeRunnerCoreTests",
-            dependencies: ["ScriptModeRunnerCore"]
+            name: "ModeRunnerCoreTests",
+            dependencies: ["ModeRunnerCore"]
         ),
         .testTarget(
-            name: "ScriptModeRunnerAppTests",
-            dependencies: ["ScriptModeRunnerApp"]
+            name: "ModeRunnerAppTests",
+            dependencies: ["ModeRunnerApp"]
         ),
     ]
 )
