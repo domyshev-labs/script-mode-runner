@@ -1,4 +1,4 @@
-# Script Mode Runner
+# Mode Runner
 
 A native macOS 14+ menu bar app that runs configured groups of commands and displays their output.
 
@@ -6,9 +6,14 @@ For setup and installation on another Mac, see [INSTALL.md](INSTALL.md).
 
 ## Quick start
 
-1. Create `~/.config/script-mode-runner/config.yaml` using `Examples/config.yaml` as a template.
-2. Build and run the app with `swift run ScriptModeRunner`.
+1. Create `~/.config/mode-runner/config.yaml` using `Examples/config.yaml` as a template.
+2. Build and run the app with `swift run ModeRunner`.
 3. Open the terminal icon in the menu bar.
+
+Existing configurations at `~/.config/script-mode-runner/config.yaml` remain
+supported when the new default path is absent. `MODE_RUNNER_CONFIG` selects a
+custom configuration; `SCRIPT_MODE_RUNNER_CONFIG` remains a compatible alias.
+The renamed app also imports locally saved project tab order.
 
 A command can use an `executable`/`arguments` pair or a `command` string executed through a shell. Yarn, npm, Python, local binaries, and other programs are handled the same way.
 
@@ -26,7 +31,7 @@ Working directories in YAML are resolved relative to the YAML file. This lets yo
 Run the app with the test configuration:
 
 ```bash
-SCRIPT_MODE_RUNNER_CONFIG="$PWD/Examples/test-apps.yaml" swift run ScriptModeRunner
+MODE_RUNNER_CONFIG="$PWD/Examples/test-apps.yaml" swift run ModeRunner
 ```
 
 ## MVP behavior
@@ -154,7 +159,7 @@ the same JSON contract once its seed list and launch command are available.
 Try the bundled menus with:
 
 ```bash
-SCRIPT_MODE_RUNNER_CONFIG="$PWD/Examples/dropdowns.yaml" swift run ScriptModeRunner
+MODE_RUNNER_CONFIG="$PWD/Examples/dropdowns.yaml" swift run ModeRunner
 ```
 
 The demo seed runner only prints arguments; it does not modify data. Completed

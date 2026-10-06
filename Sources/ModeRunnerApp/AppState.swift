@@ -1,7 +1,7 @@
 import AppKit
 import Combine
 import Foundation
-import ScriptModeRunnerCore
+import ModeRunnerCore
 
 struct ScriptLog {
     var buffer = ByteRingBuffer()
@@ -53,12 +53,15 @@ final class AppState: ObservableObject {
     private let relay: EventRelay
     private let supervisor: ProcessSupervisor
     private let preferences: UserDefaults
+    private let legacyPreferences: UserDefaults?
     private var tabOrderKey: String { "projectTabOrder/\(configURL.standardizedFileURL.path)" }
     private var catalogTasks: [String: Task<Void, Never>] = [:]
 
-    init(configURL: URL = ConfigurationLoader.defaultURL, preferences: UserDefaults = .standard) {
+    init(configURL: URL = ConfigurationLoader.defaultURL, preferences: UserDefaults = .standard,
+         legacyPreferences: UserDefaults? = UserDefaults(suiteName: "dev.domyshev.script-mode-runner")) {
         self.configURL = configURL
         self.preferences = preferences
+        self.legacyPreferences = legacyPreferences
         let relay = EventRelay()
         self.relay = relay
         supervisor = ProcessSupervisor { event in relay.receive(event) }
@@ -86,7 +89,11 @@ final class AppState: ObservableObject {
                 !loaded.tabs.contains { $0.id == old.id } && runs.contains { $0.tabID == old.id }
             } ?? []
             let tabs = loaded.tabs + retained
-            let savedOrder = preferences.stringArray(forKey: tabOrderKey) ?? []
+            let savedOrder = preferences.stringArray(forKey: tabOrderKey)
+                ?? legacyPreferences?.stringArray(forKey: tabOrderKey) ?? []
+            if preferences.stringArray(forKey: tabOrderKey) == nil, !savedOrder.isEmpty {
+                preferences.set(savedOrder, forKey: tabOrderKey)
+            }
             let positions = Dictionary(savedOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
             configuration = RunnerConfiguration(tabs: tabs.enumerated().sorted {
                 let left = positions[$0.element.id] ?? savedOrder.count + $0.offset

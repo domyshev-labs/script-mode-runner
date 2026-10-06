@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import ScriptModeRunnerCore
+@testable import ModeRunnerCore
 
 @Test func ringBufferKeepsNewestBytes() {
     var buffer = ByteRingBuffer(capacity: 5)

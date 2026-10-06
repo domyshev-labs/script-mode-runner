@@ -15,8 +15,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem = item
         if let button = item.button {
-            button.image = NSImage(systemSymbolName: "terminal", accessibilityDescription: "Script Mode Runner")
-            button.toolTip = "Script Mode Runner"
+            button.image = NSImage(systemSymbolName: "terminal", accessibilityDescription: "Mode Runner")
+            button.toolTip = "Mode Runner"
             button.target = self
             button.action = #selector(togglePopover)
         }
@@ -27,7 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             HStack(spacing: 10) {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.title2)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Script Mode Runner").font(.headline)
+                    Text("Mode Runner").font(.headline)
                     Text("Started. Click here to open.").font(.caption).foregroundStyle(.secondary)
                 }
             }.padding(14)
@@ -80,7 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 @main
 @MainActor
-enum ScriptModeRunnerApp {
+enum ModeRunnerApp {
     static func main() {
         let application = NSApplication.shared
         let delegate = AppDelegate()
@@ -96,8 +96,8 @@ enum ScriptModeRunnerApp {
     private static func makeMainMenu() -> NSMenu {
         let menu = NSMenu()
         let appItem = NSMenuItem()
-        let appMenu = NSMenu(title: "Script Mode Runner")
-        appMenu.addItem(withTitle: "Quit Script Mode Runner", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let appMenu = NSMenu(title: "Mode Runner")
+        appMenu.addItem(withTitle: "Quit Mode Runner", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         menu.addItem(appItem)
         let editItem = NSMenuItem()

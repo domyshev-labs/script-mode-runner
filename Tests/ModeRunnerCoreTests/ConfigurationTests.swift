@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import ScriptModeRunnerCore
+@testable import ModeRunnerCore
 
 @Test func decodesBothCommandFormsAndDefaults() throws {
     let yaml = """
@@ -97,4 +97,24 @@ import Testing
     let config = try ConfigurationLoader().load(from: url)
     #expect(config.tabs[0].buttons[0].align == .left)
     #expect(config.tabs[0].buttons[1].align == .right)
+}
+
+@Test func renamedConfigurationPathPreservesExistingInstallations() throws {
+    let home = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: home) }
+    let current = home.appending(path: ".config/mode-runner/config.yaml")
+    let legacy = home.appending(path: ".config/script-mode-runner/config.yaml")
+    #expect(ConfigurationLoader.defaultURL(environment: [:], homeDirectory: home) == current)
+    try FileManager.default.createDirectory(at: legacy.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try "tabs: []".write(to: legacy, atomically: true, encoding: .utf8)
+    #expect(ConfigurationLoader.defaultURL(environment: [:], homeDirectory: home) == legacy)
+    try FileManager.default.createDirectory(at: current.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try "tabs: []".write(to: current, atomically: true, encoding: .utf8)
+    #expect(ConfigurationLoader.defaultURL(environment: [:], homeDirectory: home) == current)
+    let custom = home.appending(path: "custom.yaml")
+    #expect(ConfigurationLoader.defaultURL(environment: ["MODE_RUNNER_CONFIG": custom.path,
+                                                        "SCRIPT_MODE_RUNNER_CONFIG": legacy.path], homeDirectory: home) == custom)
+    #expect(ConfigurationLoader.defaultURL(environment: ["SCRIPT_MODE_RUNNER_CONFIG": legacy.path], homeDirectory: home) == legacy)
+    #expect(ConfigurationLoader.defaultURL(environment: ["MODE_RUNNER_CONFIG": "",
+                                                        "SCRIPT_MODE_RUNNER_CONFIG": legacy.path], homeDirectory: home) == legacy)
 }

@@ -3,17 +3,17 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleDisplayName</key>
-    <string>Script Mode Runner</string>
+    <string>Mode Runner</string>
     <key>CFBundleExecutable</key>
-    <string>ScriptModeRunner</string>
+    <string>ModeRunner</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
-    <string>dev.domyshev.script-mode-runner</string>
+    <string>dev.domyshev.mode-runner</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Script Mode Runner</string>
+    <string>Mode Runner</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import ScriptModeRunnerCore
+@testable import ModeRunnerCore
 
 private func directory() throws -> URL {
     let url = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)

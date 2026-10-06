@@ -1,6 +1,6 @@
 import AppKit
 import Testing
-@testable import ScriptModeRunnerApp
+@testable import ModeRunnerApp
 
 @MainActor
 @Test func logTextViewHasVisibleDocumentAndRendersText() throws {

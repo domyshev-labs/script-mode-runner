@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 import Testing
-@testable import ScriptModeRunnerCore
+@testable import ModeRunnerCore
 
 @Test func capturesOutputAndExitStatus() async throws {
     let events = EventCollector()

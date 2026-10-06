@@ -1,8 +1,8 @@
 import Combine
 import Foundation
 import Testing
-import ScriptModeRunnerCore
-@testable import ScriptModeRunnerApp
+import ModeRunnerCore
+@testable import ModeRunnerApp
 
 @MainActor
 private func waitUntil(_ condition: () -> Bool) async throws {
@@ -471,7 +471,7 @@ private func waitUntil(_ condition: () -> Bool) async throws {
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let config = directory.appending(path: "config.yaml")
-    let suite = "ScriptModeRunnerTests/" + UUID().uuidString
+    let suite = "ModeRunnerTests/" + UUID().uuidString
     let preferences = try #require(UserDefaults(suiteName: suite))
     defer { preferences.removePersistentDomain(forName: suite) }
     func writeTabs(_ ids: [String], to url: URL) throws {
@@ -516,4 +516,32 @@ private func waitUntil(_ condition: () -> Bool) async throws {
     #expect(projectTabID(at: CGPoint(x: 100, y: -1), width: 656, tabs: tabs) == nil)
     #expect(projectTabID(at: .zero, width: 0, tabs: tabs) == nil)
     #expect(projectTabID(at: .zero, width: 656, tabs: []) == nil)
+}
+
+@MainActor
+@Test func renamedAppImportsLegacyProjectOrderOnlyOnce() throws {
+    let config = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: config) }
+    try """
+    tabs:
+      - {id: one, title: One, buttons: []}
+      - {id: two, title: Two, buttons: []}
+    """.write(to: config, atomically: true, encoding: .utf8)
+    let suite = "ModeRunnerTests/" + UUID().uuidString
+    let legacySuite = suite + "/legacy"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    let legacy = try #require(UserDefaults(suiteName: legacySuite))
+    defer {
+        preferences.removePersistentDomain(forName: suite)
+        legacy.removePersistentDomain(forName: legacySuite)
+    }
+    let key = "projectTabOrder/\(config.standardizedFileURL.path)"
+    legacy.set(["two", "one"], forKey: key)
+    let state = AppState(configURL: config, preferences: preferences, legacyPreferences: legacy)
+    #expect(state.configuration?.tabs.map(\.id) == ["two", "one"])
+    #expect(preferences.stringArray(forKey: key) == ["two", "one"])
+    #expect(state.moveTab("one", to: "two"))
+    state.reload()
+    #expect(state.configuration?.tabs.map(\.id) == ["one", "two"])
+    #expect(legacy.stringArray(forKey: key) == ["two", "one"])
 }

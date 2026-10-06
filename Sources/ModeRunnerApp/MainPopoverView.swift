@@ -1,5 +1,5 @@
 import AppKit
-import ScriptModeRunnerCore
+import ModeRunnerCore
 import SwiftUI
 
 private struct ParameterSelection: Identifiable {
@@ -64,7 +64,7 @@ struct MainPopoverView: View {
 
     private var header: some View {
         HStack {
-            Text("Script Mode Runner").font(.headline)
+            Text("Mode Runner").font(.headline)
             Spacer()
             Button("Reload", systemImage: "arrow.clockwise") {
                 reloadHelpTask?.cancel()

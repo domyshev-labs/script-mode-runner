@@ -1,4 +1,4 @@
-# Installing Script Mode Runner on another Mac
+# Installing Mode Runner on another Mac
 
 ## Requirements
 
@@ -67,10 +67,10 @@ Run the local installer:
 ./Scripts/install.sh
 ```
 
-It builds a release executable, creates `Script Mode Runner.app`, applies an ad-hoc local signature, and installs it to:
+It builds a release executable, creates `Mode Runner.app`, applies an ad-hoc local signature, and installs it to:
 
 ```text
-~/Applications/Script Mode Runner.app
+~/Applications/Mode Runner.app
 ```
 
 To install into a different application directory, pass it as the first argument:
@@ -86,14 +86,21 @@ Writing to `/Applications` may require administrator permission. `~/Applications
 The installed app reads:
 
 ```text
-~/.config/script-mode-runner/config.yaml
+~/.config/mode-runner/config.yaml
 ```
 
-Create the directory and copy the general example:
+Existing installations continue to read `~/.config/script-mode-runner/config.yaml`
+when the new path does not exist. Keeping that file in place preserves relative
+working directories and locally saved project tab order. `MODE_RUNNER_CONFIG`
+overrides the default path; the former `SCRIPT_MODE_RUNNER_CONFIG` variable is
+also accepted for compatibility. Saved project tab order is imported from the
+former application's preferences automatically.
+
+For a new installation, create the directory and copy the general example:
 
 ```bash
-mkdir -p ~/.config/script-mode-runner
-cp Examples/config.yaml ~/.config/script-mode-runner/config.yaml
+mkdir -p ~/.config/mode-runner
+cp Examples/config.yaml ~/.config/mode-runner/config.yaml
 ```
 
 Edit every `cwd`, executable, command, and environment value for the new Mac. Relative `cwd` values are resolved from the directory containing the YAML file.
@@ -105,9 +112,9 @@ Commands use an interactive login zsh (`zsh -ilc`) by default, loading `.zprofil
 For the repository fixtures, run from Terminal so the example YAML remains next to the fixture directories:
 
 ```bash
-SCRIPT_MODE_RUNNER_CONFIG="$PWD/Examples/test-apps.yaml" \
+MODE_RUNNER_CONFIG="$PWD/Examples/test-apps.yaml" \
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-  xcrun swift run ScriptModeRunner
+  xcrun swift run ModeRunner
 ```
 
 The three tabs expose:
@@ -119,7 +126,7 @@ The mock frontend requests `/api/test-data` from its paired backend. The web pag
 
 ## Launching the installed app
 
-Open `~/Applications/Script Mode Runner.app` in Finder. A three-second startup popover points to its terminal icon in the macOS menu bar. The installed bundle includes an app icon for Finder and Spotlight; the app does not create a Dock icon.
+Open `~/Applications/Mode Runner.app` in Finder. A three-second startup popover points to its terminal icon in the macOS menu bar. The installed bundle includes an app icon for Finder and Spotlight; the app does not create a Dock icon.
 
 Because this is a locally built, ad-hoc-signed application, another Mac may ask for confirmation the first time it is opened. A public build should use a Developer ID signature and Apple notarization instead.
 
@@ -131,4 +138,4 @@ Pull or copy the newer source tree and rerun:
 ./Scripts/install.sh
 ```
 
-The installer replaces the executable, icon, and metadata inside the existing local app bundle. It refreshes Launch Services registration and Spotlight metadata so in-place updates can be discovered. Spotlight may retain its displayed icon until the search is reopened. It does not overwrite the user's YAML configuration.
+Quit the running app before updating; quitting stops its managed processes. The installer builds and verifies a complete replacement bundle before installing it. It replaces an existing Mode Runner bundle and removes the former Script Mode Runner bundle after verifying that it belongs to this project. It refreshes Launch Services registration and Spotlight metadata so in-place updates can be discovered. Spotlight may retain its displayed icon until the search is reopened. It does not overwrite the user's YAML configuration.
