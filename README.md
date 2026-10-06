@@ -17,7 +17,16 @@ The renamed app also imports locally saved project tab order.
 
 A command can use an `executable`/`arguments` pair or a `command` string executed through a shell. Yarn, npm, Python, local binaries, and other programs are handled the same way.
 
-Run `./Scripts/install.sh` to build a locally signed `.app` with a custom Finder and Spotlight icon. A three-second popover points to the menu bar icon on startup.
+Build with Xcode 26 or newer (Xcode 27 is recommended for macOS 27). Navigation and controls use native Liquid Glass on macOS 26 and later, including the system's current rendering on macOS 27. macOS 14–15 use standard materials. Light/dark appearance, Reduce Transparency, and Increase Contrast are respected. Logs keep a solid background for readability.
+
+Run `./Scripts/install.sh` to build a locally signed `.app` with a custom Finder and Spotlight icon. The colored menu bar icon matches the app icon and gently grows and shrinks three times on startup. Reduce Motion disables the animation.
+
+The menu bar image is generated from the same vector artwork as the app icon. After changing `Scripts/generate-icon.swift`, refresh the checked-in resource before building:
+
+```bash
+swift Scripts/generate-icon.swift .build/menu-icon.iconset
+cp .build/menu-icon.iconset/icon_128x128.png Sources/ModeRunnerApp/Resources/MenuBarIcon.png
+```
 
 ## Test applications
 

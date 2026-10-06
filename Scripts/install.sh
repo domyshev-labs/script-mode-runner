@@ -44,6 +44,7 @@ CONTENTS_DIRECTORY="${STAGING_BUNDLE}/Contents"
 mkdir -p "${CONTENTS_DIRECTORY}/MacOS" "${CONTENTS_DIRECTORY}/Resources"
 install -m 755 "${BIN_DIRECTORY}/ModeRunner" "${CONTENTS_DIRECTORY}/MacOS/ModeRunner"
 install -m 644 "${PROJECT_DIRECTORY}/Packaging/Info.plist" "${CONTENTS_DIRECTORY}/Info.plist"
+cp -R "${BIN_DIRECTORY}/ModeRunner_ModeRunnerApp.bundle" "${CONTENTS_DIRECTORY}/Resources/"
 
 ICONSET_DIRECTORY="${BIN_DIRECTORY}/AppIcon.iconset"
 DEVELOPER_DIR="${DEVELOPER_DIRECTORY}" xcrun swift "${PROJECT_DIRECTORY}/Scripts/generate-icon.swift" "${ICONSET_DIRECTORY}"

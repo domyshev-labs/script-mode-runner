@@ -33,11 +33,11 @@ func makeLogScrollView() -> NSScrollView {
     view.autoresizingMask = [.width]
     view.minSize = NSSize(width: 0, height: contentSize.height)
     view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-    view.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+    view.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
     view.textColor = .textColor
     view.backgroundColor = .textBackgroundColor
     view.drawsBackground = true
-    view.textContainerInset = NSSize(width: 8, height: 8)
+    view.textContainerInset = NSSize(width: 12, height: 12)
     view.textContainer?.containerSize = NSSize(width: contentSize.width, height: CGFloat.greatestFiniteMagnitude)
     view.textContainer?.widthTracksTextView = true
     scroll.documentView = view
@@ -54,7 +54,7 @@ func updateLogScrollView(_ scroll: NSScrollView, text: String, boldFirstLine: Bo
     }
     let wasAtBottom = view.visibleRect.maxY >= view.bounds.maxY - 24
     let attributes: [NSAttributedString.Key: Any] = [
-        .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
+        .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
         .foregroundColor: NSColor.textColor,
     ]
     if let storage = view.textStorage, !view.string.isEmpty, displayText.hasPrefix(view.string) {
@@ -88,7 +88,7 @@ func updateLogScrollView(_ scroll: NSScrollView, text: String, boldFirstLine: Bo
 private func applyLogHeading(to storage: NSTextStorage?, bold: Bool) {
     guard let storage, storage.length > 0 else { return }
     let firstLine = (storage.string as NSString).lineRange(for: NSRange(location: 0, length: 0))
-    storage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 11, weight: bold ? .bold : .regular),
+    storage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 12, weight: bold ? .bold : .regular),
                          range: firstLine)
     guard bold else { return }
     let text = storage.string as NSString
@@ -100,7 +100,7 @@ private func applyLogHeading(to storage: NSTextStorage?, bold: Bool) {
             let prefixLength = (prefix as NSString).length
             let valueRange = NSRange(location: offset + prefixLength,
                                      length: (line as NSString).length - prefixLength)
-            storage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 11, weight: .bold),
+            storage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 12, weight: .bold),
                                  range: valueRange)
         }
         offset = NSMaxRange(range)

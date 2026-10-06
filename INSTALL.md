@@ -4,12 +4,12 @@
 
 - macOS 14 Sonoma or newer;
 - Apple Silicon or Intel Mac;
-- full Xcode installation;
+- full Xcode 26 or newer installation (Xcode 27 recommended for macOS 27);
 - Node.js and Yarn Classic when the configured commands use Yarn.
 
 ## 1. Install Xcode
 
-Install Xcode from the Mac App Store, launch it once, and accept the license and component installation prompts.
+Install Xcode 26 or newer from the Mac App Store, launch it once, and accept the license and component installation prompts.
 
 Verify the bundled Swift toolchain without changing the Mac's global developer-directory setting:
 
@@ -126,7 +126,7 @@ The mock frontend requests `/api/test-data` from its paired backend. The web pag
 
 ## Launching the installed app
 
-Open `~/Applications/Mode Runner.app` in Finder. A three-second startup popover points to its terminal icon in the macOS menu bar. The installed bundle includes an app icon for Finder and Spotlight; the app does not create a Dock icon.
+Open `~/Applications/Mode Runner.app` in Finder. The colored menu bar icon matches the app icon and pulses three times on startup, without opening a notification. Reduce Motion disables the animation. The installed bundle includes an app icon for Finder and Spotlight; the app does not create a Dock icon.
 
 Because this is a locally built, ad-hoc-signed application, another Mac may ask for confirmation the first time it is opened. A public build should use a Developer ID signature and Apple notarization instead.
 
