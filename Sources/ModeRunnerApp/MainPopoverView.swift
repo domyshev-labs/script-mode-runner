@@ -23,7 +23,7 @@ struct MainPopoverView: View {
     @State private var dropTargetProjectID: String?
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 11) {
             header.zIndex(1)
             if let config = state.configuration, !config.tabs.isEmpty { content(config) }
             else {
@@ -94,14 +94,14 @@ struct MainPopoverView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Image(nsImage: RunnerIcon.image)
                 .resizable().interpolation(.high)
-                .frame(width: 36, height: 36)
+                .frame(width: 29, height: 29)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Mode Runner").font(.system(size: 18, weight: .semibold, design: .rounded))
-                Text("Your local workspace").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("Mode Runner").font(.system(size: 14.5, weight: .semibold, design: .rounded))
+                Text("Your local workspace").font(.system(size: 9)).foregroundStyle(.secondary)
             }
             Spacer()
             if state.discoveringProcesses {
@@ -111,8 +111,8 @@ struct MainPopoverView: View {
                 terminateProcesses = false
                 pendingRunnerAction = action
             }
-            .frame(width: 32, height: 32)
-            .runnerGlass(radius: 10, interactive: true)
+            .frame(width: 26, height: 26)
+            .runnerGlass(radius: 8, interactive: true)
         }
     }
 
@@ -128,7 +128,7 @@ struct MainPopoverView: View {
     @ViewBuilder
     private func content(_ config: RunnerConfiguration) -> some View {
         GeometryReader { geometry in
-            let width = geometry.size.width - 8
+            let width = geometry.size.width - 6
             RunnerGlassGroup {
               HStack(spacing: 2) {
                 ForEach(config.tabs) { tab in
@@ -139,10 +139,10 @@ struct MainPopoverView: View {
                                    select: { state.selectedTabID = tab.id },
                                    dragChanged: { location in
                                        draggedProjectID = tab.id
-                                       dropTargetProjectID = projectTabID(at: location, width: width, tabs: config.tabs, height: 36)
+                                       dropTargetProjectID = projectTabID(at: location, width: width, tabs: config.tabs, height: 29)
                                    },
                                    dragEnded: { location in
-                                       if let target = projectTabID(at: location, width: width, tabs: config.tabs, height: 36) {
+                                       if let target = projectTabID(at: location, width: width, tabs: config.tabs, height: 29) {
                                            _ = state.moveTab(tab.id, to: target)
                                        }
                                        draggedProjectID = nil
@@ -154,27 +154,27 @@ struct MainPopoverView: View {
               }
               .coordinateSpace(name: "projectTabs")
             }
-            .padding(4)
-            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 16))
+            .padding(3)
+            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 13))
         }
-        .frame(height: 44)
+        .frame(height: 35)
         if let tab = state.selectedTab {
             GeometryReader { geometry in
                 ScrollView(.horizontal) {
                     RunnerGlassGroup {
-                      HStack(spacing: 10) {
+                      HStack(spacing: 8) {
                         modeControls(tab)
                         alignedButtons(tab, alignment: .left)
-                        Spacer(minLength: 8)
+                        Spacer(minLength: 6)
                         alignedButtons(tab, alignment: .right)
                       }
                       .frame(minWidth: geometry.size.width, alignment: .leading)
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 3)
                 }
                 .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
                 .scrollIndicators(.automatic)
-            }.frame(height: 44)
+            }.frame(height: 35)
             if state.visibleScripts.isEmpty {
                 ContentUnavailableView("No runs yet", systemImage: "terminal",
                                        description: Text("Start a mode or choose a command from a menu"))
@@ -196,7 +196,7 @@ struct MainPopoverView: View {
         if let selected = state.selectedMode(in: tab) {
             let running = state.runningMode(in: tab)
             let busy = state.busyTabs.contains(tab.id) || state.discoveringProcesses
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Menu {
                     ForEach(tab.buttons.filter { $0.source == nil }) { mode in
                         Button {
@@ -218,11 +218,11 @@ struct MainPopoverView: View {
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize(horizontal: true, vertical: false)
-                .padding(.horizontal, 12)
-                .frame(height: 34)
-                .runnerGlass(tint: running?.id == selected.id ? .green.opacity(0.12) : nil, interactive: true)
+                .padding(.horizontal, 10)
+                .frame(height: 27)
+                .runnerGlass(radius: 10, tint: running?.id == selected.id ? .green.opacity(0.12) : nil, interactive: true)
                 .disabled(busy)
-                HStack(spacing: 6) {
+                HStack(spacing: 4) {
                     ModeControlButton(symbol: "play.fill", tint: .green,
                                       help: "Start \(selected.title)", enabled: !busy && running?.id != selected.id) {
                         state.startMode(selected, in: tab)
@@ -237,7 +237,7 @@ struct MainPopoverView: View {
                     }
                 }
             }
-            .font(.system(size: 13))
+            .font(.system(size: 10.5))
             .fixedSize(horizontal: true, vertical: false)
         }
     }
@@ -265,22 +265,22 @@ struct MainPopoverView: View {
             } label: { buttonLabel(button.title, activity: activity) }
             .menuStyle(.borderlessButton)
             .fixedSize(horizontal: true, vertical: false)
-            .padding(.horizontal, 12)
-            .frame(height: 34)
-            .runnerGlass(interactive: true)
+            .padding(.horizontal, 10)
+            .frame(height: 27)
+            .runnerGlass(radius: 10, interactive: true)
             .simultaneousGesture(TapGesture().onEnded { state.refreshCatalog(button, in: tab) })
         }
     }
 
     private func buttonLabel(_ title: String, activity: ButtonActivity) -> some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 4) {
             Image(systemName: "list.bullet").foregroundStyle(.secondary)
             Text(title).lineLimit(1)
             if activity == .transitioning {
                 ProgressView().controlSize(.mini)
             }
         }
-        .font(.system(size: 13))
+        .font(.system(size: 10.5))
         .fixedSize(horizontal: true, vertical: false)
     }
 
@@ -397,13 +397,13 @@ private struct ModeControlButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 10.5, weight: .semibold))
                 .foregroundStyle(enabled ? tint : Color.secondary.opacity(0.5))
-                .frame(width: 32, height: 32)
-                .contentShape(RoundedRectangle(cornerRadius: 10))
+                .frame(width: 26, height: 26)
+                .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
-        .runnerGlass(radius: 10, tint: enabled ? tint.opacity(0.1) : nil, interactive: enabled)
+        .runnerGlass(radius: 8, tint: enabled ? tint.opacity(0.1) : nil, interactive: enabled)
         .disabled(!enabled)
         .help(help)
         .accessibilityLabel(help)
@@ -435,17 +435,17 @@ private struct ProjectTabView: View {
     }
 
     private var label: some View {
-        HStack(spacing: 5) {
-            if running { Circle().fill(.green).frame(width: 6, height: 6) }
+        HStack(spacing: 4) {
+            if running { Circle().fill(.green).frame(width: 5, height: 5) }
             Text(tab.title)
         }
-            .font(.system(size: 13, weight: selected ? .semibold : .regular))
+            .font(.system(size: 10.5, weight: selected ? .semibold : .regular))
             .lineLimit(1)
             .frame(maxWidth: .infinity)
-            .padding(.horizontal, 10)
-            .frame(height: 36)
+            .padding(.horizontal, 8)
+            .frame(height: 29)
             .modifier(ProjectTabSurface(selected: selected || dragging))
-            .overlay(RoundedRectangle(cornerRadius: 12)
+            .overlay(RoundedRectangle(cornerRadius: 10)
                 .strokeBorder(dropTarget ? Color.accentColor : Color.clear, lineWidth: 2))
             .contentShape(Rectangle())
     }
@@ -463,7 +463,7 @@ private struct ProjectTabSurface: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if selected { content.runnerGlass(tint: .accentColor.opacity(0.12), interactive: true) }
+        if selected { content.runnerGlass(radius: 10, tint: .accentColor.opacity(0.12), interactive: true) }
         else { content }
     }
 }
