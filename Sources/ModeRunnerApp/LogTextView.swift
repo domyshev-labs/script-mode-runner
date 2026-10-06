@@ -3,13 +3,14 @@ import SwiftUI
 
 struct LogTextView: NSViewRepresentable {
     let text: String
+    var boldFirstLine = false
 
     func makeNSView(context: Context) -> NSScrollView {
         makeLogScrollView()
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
-        updateLogScrollView(scroll, text: text)
+        updateLogScrollView(scroll, text: text, boldFirstLine: boldFirstLine)
     }
 }
 
@@ -44,9 +45,13 @@ func makeLogScrollView() -> NSScrollView {
 }
 
 @MainActor
-func updateLogScrollView(_ scroll: NSScrollView, text: String) {
+func updateLogScrollView(_ scroll: NSScrollView, text: String, boldFirstLine: Bool = false) {
     let displayText = stripTerminalEscapes(text)
-    guard let view = scroll.documentView as? NSTextView, view.string != displayText else { return }
+    guard let view = scroll.documentView as? NSTextView else { return }
+    if view.string == displayText {
+        applyLogHeading(to: view.textStorage, bold: boldFirstLine)
+        return
+    }
     let wasAtBottom = view.visibleRect.maxY >= view.bounds.maxY - 24
     let attributes: [NSAttributedString.Key: Any] = [
         .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
@@ -74,8 +79,32 @@ func updateLogScrollView(_ scroll: NSScrollView, text: String) {
         addLogLinks(to: attributed)
         view.textStorage?.setAttributedString(attributed)
     }
+    applyLogHeading(to: view.textStorage, bold: boldFirstLine)
     if wasAtBottom { view.scrollToEndOfDocument(nil) }
     view.window?.invalidateCursorRects(for: view)
+}
+
+@MainActor
+private func applyLogHeading(to storage: NSTextStorage?, bold: Bool) {
+    guard let storage, storage.length > 0 else { return }
+    let firstLine = (storage.string as NSString).lineRange(for: NSRange(location: 0, length: 0))
+    storage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 11, weight: bold ? .bold : .regular),
+                         range: firstLine)
+    guard bold else { return }
+    let text = storage.string as NSString
+    var offset = NSMaxRange(firstLine)
+    for _ in 0..<4 where offset < text.length {
+        let range = text.lineRange(for: NSRange(location: offset, length: 0))
+        let line = text.substring(with: range).trimmingCharacters(in: .newlines)
+        for prefix in ["Configuration match: ", "Port: "] where line.hasPrefix(prefix) {
+            let prefixLength = (prefix as NSString).length
+            let valueRange = NSRange(location: offset + prefixLength,
+                                     length: (line as NSString).length - prefixLength)
+            storage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 11, weight: .bold),
+                                 range: valueRange)
+        }
+        offset = NSMaxRange(range)
+    }
 }
 
 @MainActor

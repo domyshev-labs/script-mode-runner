@@ -6,10 +6,12 @@ import ModeRunnerCore
 struct ScriptLog {
     var buffer = ByteRingBuffer()
     var status: ProcessStatus?
+    var configuredRunningLink: URL?
+    var hasDetectionMessage = false
 
     var latestRunningLink: URL? {
         guard case .running = status else { return nil }
-        return detectedLogLinks(in: stripTerminalEscapes(buffer.string)).last?.url
+        return detectedLogLinks(in: stripTerminalEscapes(buffer.string)).last?.url ?? configuredRunningLink
     }
 }
 
@@ -56,6 +58,8 @@ final class AppState: ObservableObject {
     private let legacyPreferences: UserDefaults?
     private var tabOrderKey: String { "projectTabOrder/\(configURL.standardizedFileURL.path)" }
     private var catalogTasks: [String: Task<Void, Never>] = [:]
+    private var discoveryTask: Task<Void, Never>?
+    @Published private(set) var discoveringProcesses = false
 
     init(configURL: URL = ConfigurationLoader.defaultURL, preferences: UserDefaults = .standard,
          legacyPreferences: UserDefaults? = UserDefaults(suiteName: "dev.domyshev.script-mode-runner")) {
@@ -113,7 +117,56 @@ final class AppState: ObservableObject {
                 for button in tab.buttons where button.source != nil { refreshCatalog(button, in: tab) }
             }
             selectVisibleOutput()
+            discoverExistingProcesses()
         } catch { errorMessage = "\(configURL.path)\n\(error.localizedDescription)" }
+    }
+
+    private func discoverExistingProcesses() {
+        discoveryTask?.cancel()
+        discoveringProcesses = true
+        discoveryTask = Task { [weak self] in
+            let snapshot = await Task.detached { DiscoveredProcess.snapshot() }.value
+            guard !Task.isCancelled, let self, let configuration else { return }
+            defer { discoveringProcesses = false }
+            var adoptedTabs: Set<String> = []
+            for tab in configuration.tabs {
+                for mode in tab.buttons where mode.source == nil {
+                    let batchID = runs.last(where: {
+                        $0.tabID == tab.id && $0.buttonID == mode.id && !$0.isMenu &&
+                        logs[$0.id]?.status?.isRunning == true
+                    })?.batchID ?? UUID().uuidString
+                    for script in mode.scripts {
+                        guard !Task.isCancelled else { return }
+                        guard !runs.contains(where: {
+                            $0.tabID == tab.id && $0.buttonID == mode.id && $0.script.id == script.id &&
+                            logs[$0.id]?.status?.isRunning == true
+                        }) else { continue }
+                        let candidates = ProcessDiscovery.roots(matching: script, in: snapshot)
+                        // Ambiguous matches must not give Stop control over an arbitrary process.
+                        guard candidates.count == 1, let process = candidates.first else { continue }
+                        let id = reserve(script, button: mode, tab: tab, isMenu: false,
+                                         batchID: batchID, selectOutput: false)
+                        if await supervisor.adopt(runID: id, process: process) {
+                            logs[id]?.status = .running(pid: process.identity.pid)
+                            logs[id]?.configuredRunningLink = configuredLocalURL(for: script)
+                            logs[id]?.hasDetectionMessage = true
+                            logs[id]?.buffer.append(Data(existingProcessMessage(script: script, location: process.cwd).utf8))
+                            adoptedTabs.insert(tab.id)
+                        } else {
+                            runs.removeAll { $0.id == id }
+                            logs[id] = nil
+                        }
+                    }
+                }
+            }
+            for tab in configuration.tabs where adoptedTabs.contains(tab.id) {
+                if let mode = runningMode(in: tab) {
+                    activeModes[tab.id] = mode.id
+                    viewedModes[tab.id] = mode.id
+                }
+            }
+            selectVisibleOutput()
+        }
     }
 
     func refreshCatalog(_ button: RunnerMode, in tab: RunnerTab) {
@@ -190,7 +243,7 @@ final class AppState: ObservableObject {
         guard runningMode(in: tab)?.id != mode.id else { return }
         guard !busyTabs.contains(tab.id) else { return }
         selectMode(mode, in: tab)
-        transition(mode, in: tab, startAfterStop: true)
+        transition(mode, in: tab, startAfterStop: true, skipIfAlreadyRunning: true)
     }
 
     func stopMode(_ mode: RunnerMode, in tab: RunnerTab) {
@@ -207,7 +260,7 @@ final class AppState: ObservableObject {
         transition(mode, in: tab, startAfterStop: runningMode(in: tab)?.id != mode.id)
     }
 
-    private func transition(_ mode: RunnerMode, in tab: RunnerTab, startAfterStop: Bool) {
+    private func transition(_ mode: RunnerMode, in tab: RunnerTab, startAfterStop: Bool, skipIfAlreadyRunning: Bool = false) {
         guard !busyTabs.contains(tab.id) else { return }
         busyTabs.insert(tab.id)
         let live = runs.filter { $0.tabID == tab.id && !$0.isMenu && logs[$0.id]?.status?.isRunning == true }
@@ -217,7 +270,16 @@ final class AppState: ObservableObject {
                 transitioningModes[tab.id] = nil
                 busyTabs.remove(tab.id)
             }
-            let stopping = live
+            await discoveryTask?.value
+            let stopping = runs.filter { $0.tabID == tab.id && !$0.isMenu && logs[$0.id]?.status?.isRunning == true }
+            // Starting an already discovered mode must not duplicate or restart its processes.
+            if skipIfAlreadyRunning, !stopping.isEmpty, stopping.allSatisfy({ $0.buttonID == mode.id }) {
+                viewedModes[tab.id] = mode.id
+                selectVisibleOutput()
+                return
+            }
+            let stoppingModes: Set<String> = stopping.isEmpty ? [mode.id] : Set(stopping.map(\.buttonID))
+            if transitioningModes[tab.id] != stoppingModes { transitioningModes[tab.id] = stoppingModes }
             for run in stopping { await stop(run.id) }
             for _ in 0..<100 where stopping.contains(where: { logs[$0.id]?.status?.isRunning == true }) {
                 try? await Task.sleep(for: .milliseconds(20))
@@ -327,6 +389,8 @@ final class AppState: ObservableObject {
     }
 
     func shutdown() async {
+        discoveryTask?.cancel()
+        await discoveryTask?.value
         for task in catalogTasks.values { task.cancel() }
         let tasks = Array(catalogTasks.values)
         await supervisor.stopAll()
@@ -334,6 +398,8 @@ final class AppState: ObservableObject {
     }
 
     func preserveProcesses(executablePath: String) async throws {
+        discoveryTask?.cancel()
+        await discoveryTask?.value
         for task in catalogTasks.values { task.cancel() }
         let tasks = Array(catalogTasks.values)
         try await supervisor.preserveOutput(executablePath: executablePath)
@@ -341,7 +407,11 @@ final class AppState: ObservableObject {
     }
 
     private func selectVisibleOutput() {
-        if !visibleScripts.contains(where: { $0.id == selectedOutputID }) { selectedOutputID = visibleScripts.last?.id }
+        let scripts = visibleScripts
+        if !scripts.contains(where: { $0.id == selectedOutputID }) {
+            selectedOutputID = scripts.first(where: { !$0.isMenu && logs[$0.id]?.hasDetectionMessage == true })?.id
+                ?? scripts.last?.id
+        }
     }
 
     private func pruneHistory() {
@@ -374,6 +444,43 @@ final class AppState: ObservableObject {
     }
 }
 
+func existingProcessMessage(script: RunnerScript, location: String, detectedAt: Date = Date(),
+                            timeZone: TimeZone = .current) -> String {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.timeZone = timeZone
+    formatter.dateFormat = "yyyy-MM-dd HH:mm:ss XXX"
+    let port = configuredLocalURL(for: script)?.port.map(String.init) ?? "Not configured"
+    return """
+    Detected an existing process:
+    Location: \(URL(fileURLWithPath: location).standardizedFileURL.path)
+    Configuration match: \(script.displayCommand)
+    Port: \(port)
+    Detected at: \(formatter.string(from: detectedAt))
+    Live output and earlier logs are unavailable because this instance does not own its stdout/stderr.
+
+    """
+}
+
+func configuredLocalURL(for script: RunnerScript) -> URL? {
+    // Existing configurations annotate script titles with explicit ports, e.g. "Dev · :3010".
+    let titlePattern = #"(?:^|[\s·]):([0-9]{1,5})(?=$|[\s·])"#
+    let argumentPattern = #"(?:^|\s)--port(?:=|\s+)([0-9]{1,5})(?=$|\s)"#
+    func port(in text: String, pattern: String) -> Int? {
+        guard let expression = try? NSRegularExpression(pattern: pattern),
+              let match = expression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let range = Range(match.range(at: 1), in: text), let value = Int(text[range]),
+              (1...65535).contains(value) else { return nil }
+        return value
+    }
+    let titlePort = port(in: script.title, pattern: titlePattern)
+    let commandPort = port(in: script.command ?? script.arguments.joined(separator: " "), pattern: argumentPattern)
+    let environmentPort = script.environment["PORT"].flatMap(Int.init).flatMap { (1...65535).contains($0) ? $0 : nil }
+    guard let value = titlePort ?? commandPort ?? environmentPort else { return nil }
+    return URL(string: "http://localhost:\(value)/")
+}
+
 // One stream preserves event ordering across output and exit notifications.
 private final class EventRelay: @unchecked Sendable {
     weak var owner: AppState?
@@ -402,6 +509,7 @@ extension ProcessStatus {
         case let .exited(code): code == 0 ? "Finished" : "Error · code \(code)"
         case let .signalled(signal): "Stopped · signal \(signal)"
         case let .failed(message): "Not running · \(message)"
+        case .unobservedExit: "Finished · exit code unavailable"
         }
     }
     var isRunning: Bool {

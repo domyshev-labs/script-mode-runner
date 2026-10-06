@@ -113,6 +113,7 @@ struct MainPopoverView: View {
             HStack(spacing: 2) {
                 ForEach(config.tabs) { tab in
                     ProjectTabView(tab: tab, selected: state.selectedTabID == tab.id,
+                                   running: state.runningMode(in: tab) != nil,
                                    dragging: draggedProjectID == tab.id,
                                    dropTarget: dropTargetProjectID == tab.id && draggedProjectID != tab.id,
                                    select: { state.selectedTabID = tab.id },
@@ -171,7 +172,7 @@ struct MainPopoverView: View {
     private func modeControls(_ tab: RunnerTab) -> some View {
         if let selected = state.selectedMode(in: tab) {
             let running = state.runningMode(in: tab)
-            let busy = state.busyTabs.contains(tab.id)
+            let busy = state.busyTabs.contains(tab.id) || state.discoveringProcesses
             HStack(spacing: 8) {
                 Menu {
                     ForEach(tab.buttons.filter { $0.source == nil }) { mode in
@@ -319,7 +320,7 @@ struct MainPopoverView: View {
                     .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
                     .background(PointingHandCursorRegion().allowsHitTesting(false))
                 }
-                LogTextView(text: log.buffer.string).id(id)
+                LogTextView(text: log.buffer.string, boldFirstLine: log.hasDetectionMessage).id(id)
                     .clipShape(RoundedRectangle(cornerRadius: 7))
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.primary.opacity(0.08), lineWidth: 1))
             }
@@ -386,6 +387,7 @@ private struct ModeControlButton: View {
 private struct ProjectTabView: View {
     let tab: RunnerTab
     let selected: Bool
+    let running: Bool
     let dragging: Bool
     let dropTarget: Bool
     let select: () -> Void
@@ -407,7 +409,10 @@ private struct ProjectTabView: View {
     }
 
     private var label: some View {
-        Text(tab.title)
+        HStack(spacing: 5) {
+            if running { Circle().fill(.green).frame(width: 6, height: 6) }
+            Text(tab.title)
+        }
             .font(.system(size: 13, weight: selected ? .semibold : .regular))
             .lineLimit(1)
             .frame(maxWidth: .infinity)

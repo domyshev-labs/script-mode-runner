@@ -50,8 +50,20 @@ MODE_RUNNER_CONFIG="$PWD/Examples/test-apps.yaml" swift run ModeRunner
   default; enable it to stop managed process groups before closing the app.
   If exit hangs for six seconds, an independent watchdog forces the app to quit;
   Restart then launches a replacement instance.
-- Processes left running continue independently. Their output is drained after exit;
-  a restarted app does not reconnect to their logs or regain control of them.
+- At startup and configuration reload, the app discovers existing mode processes
+  owned by the current user using their exact command and working directory. This
+  includes processes left by a previous app instance and matching terminal commands.
+  The detected mode is selected, its project tab gains a running indicator, and
+  Stop/Restart become available without launching duplicate processes.
+- Detection requires an explicit `cwd`. Ambiguous matches are left unmanaged;
+  a listening port alone does not establish which configured mode owns a process.
+  Common Yarn commands also match Node-based Yarn wrappers. Complex shell commands
+  match only while their exact shell invocation remains visible.
+- Stop checks PID and process start time before signalling an adopted process and
+  its descendants. It does not signal the terminal's entire process group.
+- Processes left running continue independently. Their output is drained after exit.
+  An adopted process shows an explanation instead of restored logs: existing stdout
+  and stderr are not captured, and its eventual exit code is unavailable.
 - The app keeps at most 5 MB of output per process in memory.
 
 ## Command menus and logs
@@ -67,16 +79,22 @@ the full command in a tooltip.
 
 HTTP and HTTPS links in logs show a pointing-hand cursor and open with a normal
 left click in the default browser. While the selected process is running, its
-latest detected URL also appears as a shortcut below the status line. The shortcut
-updates with output and disappears when the process stops or its log is cleared. The browser controls whether to use a tab or window. ANSI color and
+latest detected URL also appears as a shortcut below the status line. For adopted
+processes without captured output, a localhost shortcut is derived from an explicit
+port in the script title (such as `Dev · :3010`), a `--port` argument, or the `PORT`
+environment setting. URLs found in output take precedence. The shortcut disappears
+when the process stops; clearing output preserves a configured port shortcut.
+Adoption messages use a bold heading and separate lines for the absolute working
+directory, matching configured command, port, and detection date and local time,
+including its UTC offset. The browser controls whether to use a tab or window. ANSI color and
 terminal hyperlink control sequences are removed from the displayed text.
 
 Mode and menu buttons use the same compact height and a neutral border. Menu
 buttons size to their label; longer command titles appear only in the open menu.
 Play is green and Stop is red. A spinner indicates starting or stopping; process
 status and failures remain visible in the selected log. This tracks foreground
-processes launched by the app, not HTTP readiness, external processes, or detached
-daemons. Commands that launch a server should keep it in the foreground. Existing
+processes launched by the app and discovered foreground mode processes, rather
+than HTTP readiness or detached daemons. Commands that launch a server should keep it in the foreground. Existing
 mode buttons remain mutually exclusive within a project tab; menu commands run
 independently.
 

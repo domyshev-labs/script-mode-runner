@@ -10,6 +10,7 @@ public enum ProcessStatus: Equatable, Sendable {
     case exited(code: Int32)
     case signalled(signal: Int32)
     case failed(message: String)
+    case unobservedExit
 }
 
 public enum ProcessEvent: Sendable {
@@ -41,6 +42,7 @@ public actor ProcessSupervisor {
     }
 
     private var processes: [String: RunningProcess] = [:]
+    private var adopted: [String: ProcessIdentity] = [:]
     private let eventHandler: EventHandler
 
     public init(eventHandler: @escaping EventHandler) {
@@ -49,7 +51,7 @@ public actor ProcessSupervisor {
 
     @discardableResult
     public func start(runID: String, spec: LaunchSpec) throws -> pid_t {
-        guard processes[runID] == nil else { throw ProcessSupervisorError.duplicateRun(runID) }
+        guard processes[runID] == nil, adopted[runID] == nil else { throw ProcessSupervisorError.duplicateRun(runID) }
         eventHandler(.status(runID: runID, status: .starting))
 
         var stdoutPipe: [Int32] = [0, 0]
@@ -109,6 +111,10 @@ public actor ProcessSupervisor {
     }
 
     public func stop(runID: String, policy: DeactivationPolicy) async {
+        if let identity = adopted[runID] {
+            await stopAdopted(runID: runID, identity: identity, policy: policy)
+            return
+        }
         guard let process = processes[runID] else { return }
         eventHandler(.status(runID: runID, status: .stopping))
         if policy.sigint { killpg(process.pid, SIGINT) }
@@ -122,9 +128,62 @@ public actor ProcessSupervisor {
     }
 
     public func stopAll(policy: DeactivationPolicy = .init(sigint: true, sigkill: true, timeout: .seconds(2))) async {
-        let ids = Array(processes.keys)
+        let ids = Array(processes.keys) + Array(adopted.keys)
         await withTaskGroup(of: Void.self) { group in
             for id in ids { group.addTask { await self.stop(runID: id, policy: policy) } }
+        }
+    }
+
+    public func adopt(runID: String, process: DiscoveredProcess) -> Bool {
+        guard processes[runID] == nil, adopted[runID] == nil, process.identity.isAlive,
+              !processes.values.contains(where: { $0.pid == process.identity.pid }),
+              !adopted.values.contains(process.identity) else { return false }
+        adopted[runID] = process.identity
+        eventHandler(.status(runID: runID, status: .running(pid: process.identity.pid)))
+        Task { [weak self] in
+            while process.identity.isAlive {
+                try? await Task.sleep(for: .milliseconds(200))
+                guard await self?.isAdopted(runID: runID, identity: process.identity) == true else { return }
+            }
+            await self?.adoptedDidExit(runID: runID, identity: process.identity)
+        }
+        return true
+    }
+
+    private func isAdopted(runID: String, identity: ProcessIdentity) -> Bool { adopted[runID] == identity }
+
+    private func adoptedDidExit(runID: String, identity: ProcessIdentity) {
+        guard adopted[runID] == identity else { return }
+        adopted[runID] = nil
+        eventHandler(.status(runID: runID, status: .unobservedExit))
+    }
+
+    private func stopAdopted(runID: String, identity: ProcessIdentity, policy: DeactivationPolicy) async {
+        guard identity.isAlive else { adoptedDidExit(runID: runID, identity: identity); return }
+        let snapshot = await Task.detached { DiscoveredProcess.snapshot() }.value
+        var targets = [identity]
+        var parents: Set<Int32> = [identity.pid]
+        var changed = true
+        while changed {
+            changed = false
+            for process in snapshot where parents.contains(process.parentPID) && !parents.contains(process.identity.pid) {
+                parents.insert(process.identity.pid)
+                targets.append(process.identity)
+                changed = true
+            }
+        }
+        guard identity.isAlive, adopted[runID] == identity else {
+            adoptedDidExit(runID: runID, identity: identity)
+            return
+        }
+        eventHandler(.status(runID: runID, status: .stopping))
+        // Never signal an external process group: it may include the user's terminal.
+        if policy.sigint {
+            for target in targets.reversed() where target.isAlive { kill(target.pid, SIGINT) }
+        }
+        if policy.sigkill {
+            if policy.sigint { try? await Task.sleep(for: .seconds(max(0, policy.timeout.seconds))) }
+            for target in targets.reversed() where target.isAlive { kill(target.pid, SIGKILL) }
         }
     }
 

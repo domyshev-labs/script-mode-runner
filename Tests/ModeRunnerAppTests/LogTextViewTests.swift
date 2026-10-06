@@ -1,4 +1,5 @@
 import AppKit
+import ModeRunnerCore
 import Testing
 @testable import ModeRunnerApp
 
@@ -102,4 +103,63 @@ import Testing
     #expect(log.latestRunningLink?.absoluteString == "http://localhost:3010/ready")
     log.buffer.removeAll()
     #expect(log.latestRunningLink == nil)
+}
+
+@Test func adoptedProcessLinkUsesConfiguredPortAndYieldsToCapturedOutput() {
+    let script = RunnerScript(id: "mock", title: "Mock · :3015", command: "yarn mock")
+    var log = ScriptLog(status: .running(pid: 123), configuredRunningLink: configuredLocalURL(for: script))
+    #expect(log.latestRunningLink?.absoluteString == "http://localhost:3015/")
+    log.buffer.append(Data("Listening at https://localhost:3015/api\n".utf8))
+    #expect(log.latestRunningLink?.absoluteString == "https://localhost:3015/api")
+    log.buffer.removeAll()
+    #expect(log.latestRunningLink?.absoluteString == "http://localhost:3015/")
+    log.status = .unobservedExit
+    #expect(log.latestRunningLink == nil)
+    #expect(configuredLocalURL(for: RunnerScript(id: "none", title: "Task 3015", command: "sleep 30")) == nil)
+    #expect(configuredLocalURL(for: RunnerScript(id: "invalid", title: "Mock · :65536", command: "yarn mock")) == nil)
+    #expect(configuredLocalURL(for: RunnerScript(id: "flag", title: "Dev", command: "vite --port=3020"))?.port == 3020)
+    #expect(configuredLocalURL(for: RunnerScript(id: "env", title: "Dev", command: "yarn dev", environment: ["PORT": "3025"]))?.port == 3025)
+}
+
+@Test func adoptedProcessMessageIncludesLocationCommandPortAndTimestamp() {
+    let script = RunnerScript(id: "mock", title: "Mock · :3015", command: "yarn mock")
+    let message = existingProcessMessage(script: script, location: "/Volumes/code/event-search-ui",
+                                         detectedAt: Date(timeIntervalSince1970: 0),
+                                         timeZone: TimeZone(secondsFromGMT: 7200)!)
+    let lines = message.components(separatedBy: "\n")
+    #expect(lines[0] == "Detected an existing process:")
+    #expect(lines[1] == "Location: /Volumes/code/event-search-ui")
+    #expect(lines[2] == "Configuration match: yarn mock")
+    #expect(lines[3] == "Port: 3015")
+    #expect(lines[4] == "Detected at: 1970-01-01 02:00:00 +02:00")
+    #expect(lines[5] == "Live output and earlier logs are unavailable because this instance does not own its stdout/stderr.")
+}
+
+@MainActor
+@Test func detectionHeadingIsBoldAndSurvivesLogUpdates() throws {
+    let scroll = makeLogScrollView()
+    let text = "Detected an existing process:\nLocation: /Volumes/code/event-search-ui\nConfiguration match: yarn dev:mock\nPort: 3015\n"
+    updateLogScrollView(scroll, text: text, boldFirstLine: true)
+    let storage = try #require((scroll.documentView as? NSTextView)?.textStorage)
+    let headingFont = try #require(storage.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+    #expect(NSFontManager.shared.traits(of: headingFont).contains(.boldFontMask))
+    let bodyOffset = (text as NSString).range(of: "Location:").location
+    let bodyFont = try #require(storage.attribute(.font, at: bodyOffset, effectiveRange: nil) as? NSFont)
+    #expect(!NSFontManager.shared.traits(of: bodyFont).contains(.boldFontMask))
+    for value in ["yarn dev:mock", "3015"] {
+        let offset = (text as NSString).range(of: value).location
+        let font = try #require(storage.attribute(.font, at: offset, effectiveRange: nil) as? NSFont)
+        #expect(NSFontManager.shared.traits(of: font).contains(.boldFontMask))
+    }
+    for label in ["Configuration match:", "Port:"] {
+        let offset = (text as NSString).range(of: label).location
+        let font = try #require(storage.attribute(.font, at: offset, effectiveRange: nil) as? NSFont)
+        #expect(!NSFontManager.shared.traits(of: font).contains(.boldFontMask))
+    }
+    updateLogScrollView(scroll, text: text + "Detected at: 2026-10-06 15:34:58 +02:00\n", boldFirstLine: true)
+    let updatedFont = try #require(storage.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+    #expect(NSFontManager.shared.traits(of: updatedFont).contains(.boldFontMask))
+    updateLogScrollView(scroll, text: "Normal output\n")
+    let normalFont = try #require(storage.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+    #expect(!NSFontManager.shared.traits(of: normalFont).contains(.boldFontMask))
 }
