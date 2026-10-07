@@ -52,7 +52,7 @@ struct MainPopoverView: View {
             (NSApplication.shared.delegate as? AppDelegate)?.perform(action, terminateProcesses: terminateProcesses)
         }) { action in
             VStack(alignment: .leading, spacing: 16) {
-                Label(action.title + "?", systemImage: action == .restart ? "arrow.clockwise" : "power")
+                Label(action.title + "?", systemImage: action.systemImage)
                     .font(.system(size: 18, weight: .semibold, design: .rounded))
                 Text("Running processes will keep working unless you choose to terminate them.")
                 Toggle("Terminate processes", isOn: $terminateProcesses)
@@ -301,14 +301,14 @@ struct MainPopoverView: View {
                                 Button { state.selectedOutputID = run.id } label: {
                                     HStack(spacing: 6) {
                                         Circle().fill(statusColor(state.logs[run.id]?.status)).frame(width: 6, height: 6)
-                                        Text(run.script.title).lineLimit(1).truncationMode(.tail).frame(maxWidth: 190)
+                                        Text(processTabTitle(run.script.title)).lineLimit(1).truncationMode(.tail).frame(maxWidth: 190)
                                     }
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityAddTraits(state.selectedOutputID == run.id ? [.isSelected] : [])
                                 if state.logs[run.id]?.status?.isRunning != true {
                                     Button { state.close(run.id) } label: { Image(systemName: "xmark").font(.caption2) }
-                                        .buttonStyle(.plain).help("Close completed log").accessibilityLabel("Close " + run.script.title)
+                                        .buttonStyle(.plain).help("Close completed log").accessibilityLabel("Close " + processTabTitle(run.script.title))
                                 }
                             }
                             .font(.system(size: 10.5, weight: state.selectedOutputID == run.id ? .semibold : .regular))
@@ -333,7 +333,14 @@ struct MainPopoverView: View {
                     Text(log.status?.displayText ?? "Not running").font(.caption).foregroundStyle(.secondary)
                     Text("· \(log.buffer.count) bytes").font(.caption).foregroundStyle(.tertiary)
                     Spacer()
-                    if log.status?.isRunning == true || state.restartingRuns.contains(id) || state.stoppingRuns.contains(id) {
+                    if state.startingRuns.contains(id) ||
+                        (log.status?.isRunning == false && !state.restartingRuns.contains(id) && !state.stoppingRuns.contains(id)) {
+                        ProcessActionButton(title: "Start", loading: state.startingRuns.contains(id)) {
+                            state.startSelected()
+                        }
+                        .help("Start the selected command")
+                        .disabled(!state.canStartSelected)
+                    } else if log.status?.isRunning == true || state.restartingRuns.contains(id) || state.stoppingRuns.contains(id) {
                         ProcessActionButton(title: "Reload", loading: state.restartingRuns.contains(id)) {
                             state.reloadSelected()
                         }

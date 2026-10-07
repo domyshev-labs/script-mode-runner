@@ -7,10 +7,12 @@ enum RunnerAction: String, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .restart: "Restart \"Mode runner\""
-        case .poweroff: "Poweroff \"Mode runner\""
+        case .restart: "Quit&Start \"Mode Runner\""
+        case .poweroff: "Quit \"Mode Runner\""
         }
     }
+
+    var systemImage: String { self == .restart ? "arrow.right.square" : "power" }
 }
 
 // Keep native menu navigation while presenting a styled, noninteractive help panel.
@@ -93,13 +95,14 @@ struct RunnerActionsMenu: NSViewRepresentable {
             menuAppearance = sender.effectiveAppearance
             let reload = NSMenuItem(title: "Reload configuration", action: #selector(reloadConfiguration), keyEquivalent: "")
             reload.target = self
+            reload.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
             menu.addItem(reload)
             menu.addItem(.separator())
             for action in [RunnerAction.restart, .poweroff] {
                 let item = NSMenuItem(title: action.title, action: #selector(selectAction(_:)), keyEquivalent: "")
                 item.representedObject = action.rawValue
                 item.target = self
-                item.image = NSImage(systemSymbolName: action == .poweroff ? "power" : "arrow.clockwise",
+                item.image = NSImage(systemSymbolName: action.systemImage,
                                      accessibilityDescription: nil)
                 menu.addItem(item)
             }

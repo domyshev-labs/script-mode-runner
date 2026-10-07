@@ -79,11 +79,57 @@ import Testing
     #expect(state.activity(mock, in: tab) == .partial)
     let run = try #require(state.selectedRun)
     #expect(state.logs[run.id]?.status == .running(pid: pid))
+    #expect(state.visibleScripts.count == 2)
+    #expect(state.runs.allSatisfy { $0.buttonID == mock.id })
+    let stopped = try #require(state.visibleScripts.first { $0.script.id == "backend" })
+    #expect(stopped.batchID == run.batchID)
+    #expect(state.logs[stopped.id]?.status == .notRunning)
+    #expect(state.logs[stopped.id]?.status?.displayText == "Not running")
+    #expect(state.logs[stopped.id]?.buffer.count == 0)
+    #expect(state.logs[stopped.id]?.latestRunningLink == nil)
+    state.selectedOutputID = stopped.id
+    #expect(state.canStartSelected)
+    state.reload()
+    try await waitForAdoption { !state.discoveringProcesses }
+    #expect(state.visibleScripts.count == 2)
+    #expect(state.selectedRun?.id == stopped.id)
+    state.startSelected()
+    try await waitForAdoption { state.busyTabs.isEmpty && state.activity(mock, in: tab) == .running }
+    #expect(state.logs[run.id]?.status == .running(pid: pid))
+    #expect(state.visibleScripts.count == 2)
     state.stopMode(mock, in: tab)
     try await waitForAdoption { state.busyTabs.isEmpty && state.runningMode(in: tab) == nil }
     #expect(state.logs[run.id]?.status == .unobservedExit)
     #expect(ProcessIdentity.read(pid: pid) == nil)
     #expect(state.activity(mock, in: tab) == .idle)
+    await state.shutdown()
+}
+
+@MainActor
+@Test func startupRestoresStoppedFirstCommandWhenOnlySecondCommandSurvives() async throws {
+    let directory = try adoptionDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let configuration = try adoptionConfiguration(in: directory)
+    let backend = try externalSleeper(seconds: "31", cwd: directory)
+    defer { cleanup(backend) }
+    let state = AppState(configURL: configuration)
+    defer { Task { await state.shutdown() } }
+    try await waitForAdoption { !state.discoveringProcesses }
+    let tab = try #require(state.selectedTab)
+    let mock = tab.buttons[1]
+    #expect(state.activeModes[tab.id] == mock.id)
+    #expect(state.activity(mock, in: tab) == .partial)
+    #expect(state.visibleScripts.count == 2)
+    #expect(state.selectedRun?.script.id == "backend")
+    let frontend = try #require(state.visibleScripts.first { $0.script.id == "frontend" })
+    #expect(state.logs[frontend.id]?.status == .notRunning)
+    state.selectedOutputID = frontend.id
+    #expect(state.canStartSelected)
+    state.startSelected()
+    try await waitForAdoption { state.busyTabs.isEmpty && state.activity(mock, in: tab) == .running }
+    let surviving = try #require(state.runs.first { $0.script.id == "backend" })
+    #expect(state.logs[surviving.id]?.status == .running(pid: backend.processIdentifier))
+    #expect(state.visibleScripts.count == 2)
     await state.shutdown()
 }
 

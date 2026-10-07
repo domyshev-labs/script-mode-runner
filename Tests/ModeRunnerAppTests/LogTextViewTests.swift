@@ -3,6 +3,13 @@ import ModeRunnerCore
 import Testing
 @testable import ModeRunnerApp
 
+@Test func processTabsNormalizeOnlyTrailingPortAnnotations() {
+    #expect(processTabTitle("yarn mock · :3015") == "yarn mock : 3015")
+    #expect(processTabTitle("yarn mock :3015") == "yarn mock : 3015")
+    #expect(processTabTitle("yarn mock : 3015") == "yarn mock : 3015")
+    #expect(processTabTitle("yarn dev:mock · :3015") == "yarn dev:mock : 3015")
+    #expect(processTabTitle("yarn dev:mock") == "yarn dev:mock")
+}
 @MainActor
 @Test func logTextViewHasVisibleDocumentAndRendersText() throws {
     let scroll = makeLogScrollView()

@@ -82,7 +82,8 @@ item opens a log tab in the current mode context and leaves the mode running. Re
 script selections create new runs; seed selections cannot overlap in the same
 working directory. Completed menu logs remain available in that context until closed. Mode logs show only the selected mode, with one tab per configured script; restarting shows its newest run. Stopping or finishing a mode keeps its last logs visible. Use **Stop**
 to stop a running command, **Reload** immediately to its left to restart only that
-command with fresh output, **Close** on a completed tab, and **Clear** to clear
+command with fresh output, **Start** to run a stopped or completed command again,
+**Close** on a completed tab, and **Clear** to clear
 its output. Log tabs show the launch command, truncate long titles, and expose
 the full command in a tooltip.
 
