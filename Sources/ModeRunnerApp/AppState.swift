@@ -28,6 +28,8 @@ struct ScriptRun: Identifiable {
     var requestedStop = false
 }
 
+enum LifecycleAction { case start, restart, stop }
+
 enum ButtonActivity { case idle, transitioning, running, partial, failed }
 
 struct CatalogState {
@@ -50,6 +52,9 @@ final class AppState: ObservableObject {
     @Published private(set) var busyTabs: Set<String> = []
     @Published private(set) var transitioningModes: [String: Set<String>] = [:]
     @Published private(set) var restartingRuns: Set<String> = []
+    @Published private(set) var startingRuns: Set<String> = []
+    @Published private(set) var stoppingRuns: Set<String> = []
+    @Published private(set) var modeActions: [String: LifecycleAction] = [:]
 
     let configURL: URL
     private let relay: EventRelay
@@ -157,6 +162,19 @@ final class AppState: ObservableObject {
                             logs[id] = nil
                         }
                     }
+                    // Restore stopped commands alongside any discovered processes in this mode.
+                    if runs.contains(where: {
+                        $0.tabID == tab.id && $0.buttonID == mode.id && !$0.isMenu &&
+                        logs[$0.id]?.status?.isRunning == true
+                    }) {
+                        for script in mode.scripts where !runs.contains(where: {
+                            $0.tabID == tab.id && $0.buttonID == mode.id && !$0.isMenu && $0.script.id == script.id
+                        }) {
+                            let id = reserve(script, button: mode, tab: tab, isMenu: false,
+                                             batchID: batchID, selectOutput: false)
+                            logs[id]?.status = .notRunning
+                        }
+                    }
                 }
             }
             for tab in configuration.tabs where adoptedTabs.contains(tab.id) {
@@ -253,21 +271,24 @@ final class AppState: ObservableObject {
 
     func restartMode(_ mode: RunnerMode, in tab: RunnerTab) {
         guard runningMode(in: tab)?.id == mode.id else { return }
-        transition(mode, in: tab, startAfterStop: true)
+        transition(mode, in: tab, startAfterStop: true, action: .restart)
     }
 
     func toggle(_ mode: RunnerMode, in tab: RunnerTab) {
         transition(mode, in: tab, startAfterStop: runningMode(in: tab)?.id != mode.id)
     }
 
-    private func transition(_ mode: RunnerMode, in tab: RunnerTab, startAfterStop: Bool, skipIfAlreadyRunning: Bool = false) {
+    private func transition(_ mode: RunnerMode, in tab: RunnerTab, startAfterStop: Bool, skipIfAlreadyRunning: Bool = false,
+                            action: LifecycleAction? = nil) {
         guard !busyTabs.contains(tab.id) else { return }
         busyTabs.insert(tab.id)
+        modeActions[tab.id] = action ?? (startAfterStop ? .start : .stop)
         let live = runs.filter { $0.tabID == tab.id && !$0.isMenu && logs[$0.id]?.status?.isRunning == true }
         transitioningModes[tab.id] = live.isEmpty ? [mode.id] : Set(live.map(\.buttonID))
         Task {
             defer {
                 transitioningModes[tab.id] = nil
+                modeActions[tab.id] = nil
                 busyTabs.remove(tab.id)
             }
             await discoveryTask?.value
@@ -347,11 +368,72 @@ final class AppState: ObservableObject {
         await supervisor.stop(runID: id, policy: policy)
     }
 
-    func stopSelected() { if let id = selectedOutputID { Task { await stop(id) } } }
+    func stopSelected() {
+        guard let run = selectedRun, logs[run.id]?.status?.isRunning == true,
+              !busyTabs.contains(run.tabID), !restartingRuns.contains(run.id),
+              !stoppingRuns.contains(run.id), logs[run.id]?.status != .stopping else { return }
+        stoppingRuns.insert(run.id)
+        busyTabs.insert(run.tabID)
+        Task {
+            defer {
+                stoppingRuns.remove(run.id)
+                busyTabs.remove(run.tabID)
+            }
+            await stop(run.id)
+            // Keep the clicked button busy until the exit event reaches the UI.
+            for _ in 0..<100 where logs[run.id]?.status?.isRunning == true {
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+        }
+    }
+
+    var canStartSelected: Bool {
+        guard let run = selectedRun, logs[run.id]?.status?.isRunning == false,
+              !busyTabs.contains(run.tabID), !startingRuns.contains(run.id),
+              !restartingRuns.contains(run.id), !stoppingRuns.contains(run.id) else { return false }
+        return canStart(run)
+    }
+
+    private func canStart(_ run: ScriptRun) -> Bool {
+        !runs.contains { other in
+            guard other.id != run.id, logs[other.id]?.status?.isRunning == true else { return false }
+            if run.isSeed && other.isSeed && other.script.cwd == run.script.cwd { return true }
+            guard other.tabID == run.tabID else { return false }
+            if !run.isMenu && !other.isMenu && other.buttonID != run.buttonID { return true }
+            return other.buttonID == run.buttonID && other.script == run.script
+        }
+    }
+
+    func startSelected() {
+        guard canStartSelected, let run = selectedRun else { return }
+        startingRuns.insert(run.id)
+        busyTabs.insert(run.tabID)
+        let previousLog = logs[run.id]
+        logs[run.id] = ScriptLog(status: .starting)
+        Task {
+            defer {
+                startingRuns.remove(run.id)
+                busyTabs.remove(run.tabID)
+            }
+            await discoveryTask?.value
+            guard canStart(run) else {
+                logs[run.id] = previousLog
+                return
+            }
+            guard let index = runs.firstIndex(where: { $0.id == run.id }) else { return }
+            runs[index].requestedStop = false
+            if !run.isMenu { activeModes[run.tabID] = run.buttonID }
+            await execute(run.id, script: run.script)
+            while logs[run.id]?.status == .starting {
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+        }
+    }
 
     func reloadSelected() {
         guard let run = selectedRun, case .running = logs[run.id]?.status,
-              !busyTabs.contains(run.tabID), !restartingRuns.contains(run.id) else { return }
+              !busyTabs.contains(run.tabID), !restartingRuns.contains(run.id),
+              !stoppingRuns.contains(run.id) else { return }
         restartingRuns.insert(run.id)
         busyTabs.insert(run.tabID)
         Task {
@@ -373,11 +455,20 @@ final class AppState: ObservableObject {
             logs[run.id] = ScriptLog(status: .starting)
             if !run.isMenu { activeModes[run.tabID] = run.buttonID }
             await execute(run.id, script: run.script)
+            while logs[run.id]?.status == .starting {
+                try? await Task.sleep(for: .milliseconds(20))
+            }
         }
     }
 
+    func canClose(_ id: String) -> Bool {
+        runs.contains { $0.id == id && $0.isMenu } &&
+            logs[id]?.status?.isRunning == false && !startingRuns.contains(id) &&
+            !restartingRuns.contains(id) && !stoppingRuns.contains(id)
+    }
+
     func close(_ id: String) {
-        guard logs[id]?.status?.isRunning != true, !restartingRuns.contains(id) else { return }
+        guard canClose(id) else { return }
         runs.removeAll { $0.id == id }
         logs[id] = nil
         selectVisibleOutput()
@@ -444,6 +535,11 @@ final class AppState: ObservableObject {
     }
 }
 
+func processTabTitle(_ title: String) -> String {
+    title.replacingOccurrences(of: #"\s*(?:[·•]\s*)?(?:p)?:\s*([0-9]{1,5})\s*$"#,
+                               with: " • p:$1", options: .regularExpression)
+}
+
 func existingProcessMessage(script: RunnerScript, location: String, detectedAt: Date = Date(),
                             timeZone: TimeZone = .current) -> String {
     let formatter = DateFormatter()
@@ -503,6 +599,7 @@ private func isTransitioning(_ status: ProcessStatus?) -> Bool {
 extension ProcessStatus {
     var displayText: String {
         switch self {
+        case .notRunning: "Not running"
         case .starting: "Starting"
         case let .running(pid): "Running · PID \(pid)"
         case .stopping: "Stopping"

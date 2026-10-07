@@ -19,7 +19,8 @@ let package = Package(
         ),
         .executableTarget(
             name: "ModeRunnerApp",
-            dependencies: ["ModeRunnerCore"]
+            dependencies: ["ModeRunnerCore"],
+            resources: [.process("Resources")]
         ),
         .testTarget(
             name: "ModeRunnerCoreTests",

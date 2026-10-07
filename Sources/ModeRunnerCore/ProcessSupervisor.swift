@@ -4,6 +4,7 @@ import Foundation
 public enum OutputStream: Sendable { case stdout, stderr }
 
 public enum ProcessStatus: Equatable, Sendable {
+    case notRunning
     case starting
     case running(pid: Int32)
     case stopping

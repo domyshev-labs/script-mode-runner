@@ -62,8 +62,17 @@ private func waitUntil(_ condition: () -> Bool) async throws {
     try await waitUntil { state.logs[firstID]?.status?.isRunning == false }
     #expect(state.activity(server, in: tab) == .idle)
     #expect(state.activeModes[tab.id] == nil)
+    let retainedLog = state.logs[firstID]?.buffer.string
+    #expect(!state.canClose(firstID))
     state.close(firstID)
+    #expect(state.runs.count == 2)
+    #expect(state.visibleScripts.contains { $0.id == firstID })
+    #expect(state.logs[firstID]?.buffer.string == retainedLog)
+    let menuID = try #require(state.runs.first { $0.isMenu }?.id)
+    #expect(state.canClose(menuID))
+    state.close(menuID)
     #expect(state.runs.count == 1)
+    #expect(state.runs.first?.id == firstID)
     await state.shutdown()
 }
 
@@ -244,6 +253,10 @@ private func waitUntil(_ condition: () -> Bool) async throws {
     #expect(state.runs.count == 1)
     await state.stop(id)
     try await waitUntil { !state.seedIsRunning(button) }
+    #expect(state.canClose(id))
+    state.close(id)
+    #expect(state.runs.isEmpty)
+    #expect(state.logs[id] == nil)
     let fast = MenuItem(id: "fast", title: "Fast", arguments: ["0"])
     for _ in 0..<23 {
         state.launch(fast, button: button, tab: tab)
@@ -375,6 +388,76 @@ private func waitUntil(_ condition: () -> Bool) async throws {
 }
 
 @MainActor
+@Test func startSelectedResumesOnlyStoppedProcessAndRejectsRepeatedClicks() async throws {
+    let config = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: config) }
+    try """
+    tabs:
+      - id: test
+        title: Test
+        buttons:
+          - id: pair
+            title: Pair
+            on_deactivate: {sigkill: true}
+            scripts:
+              - {id: frontend, title: Frontend, executable: /bin/sh, arguments: [-c, 'echo ready; exec sleep 30']}
+              - {id: backend, title: Backend, executable: /bin/sleep, arguments: [30]}
+          - id: other
+            title: Other
+            on_deactivate: {sigkill: true}
+            scripts:
+              - {id: server, title: Server, executable: /bin/sleep, arguments: [30]}
+    """.write(to: config, atomically: true, encoding: .utf8)
+    let state = AppState(configURL: config)
+    defer { Task { await state.shutdown() } }
+    let tab = try #require(state.selectedTab)
+    let button = tab.buttons[0]
+    state.startMode(button, in: tab)
+    try await waitUntil { state.activity(button, in: tab) == .running && state.busyTabs.isEmpty }
+    let frontend = try #require(state.runs.first)
+    let backend = try #require(state.runs.last)
+    let backendStatus = state.logs[backend.id]?.status
+    state.selectedOutputID = frontend.id
+    #expect(!state.canStartSelected)
+    state.stopSelected()
+    try await waitUntil { state.busyTabs.isEmpty && state.logs[frontend.id]?.status?.isRunning == false }
+    #expect(state.canStartSelected)
+    state.startSelected()
+    state.startSelected()
+    #expect(state.startingRuns == [frontend.id])
+    #expect(!state.canStartSelected)
+    state.close(frontend.id)
+    try await waitUntil {
+        state.startingRuns.isEmpty && state.logs[frontend.id]?.status?.isRunning == true &&
+        state.logs[frontend.id]?.buffer.string == "ready\n"
+    }
+    #expect(state.runs.count == 2)
+    #expect(state.visibleScripts.count == 2)
+    #expect(state.logs[backend.id]?.status == backendStatus)
+    #expect(state.selectedOutputID == frontend.id)
+    #expect(state.runs.first?.requestedStop == false)
+    #expect(state.activeModes[tab.id] == button.id)
+
+    state.stopMode(button, in: tab)
+    try await waitUntil { state.busyTabs.isEmpty && state.runningMode(in: tab) == nil }
+    #expect(state.canStartSelected)
+    state.startSelected()
+    try await waitUntil { state.busyTabs.isEmpty && state.runningMode(in: tab)?.id == button.id }
+    #expect(state.logs[backend.id]?.status?.isRunning == false)
+    #expect(state.activeModes[tab.id] == button.id)
+
+    state.startMode(tab.buttons[1], in: tab)
+    try await waitUntil { state.busyTabs.isEmpty && state.runningMode(in: tab)?.id == "other" }
+    state.selectMode(button, in: tab)
+    state.selectedOutputID = frontend.id
+    #expect(!state.canStartSelected)
+    state.startSelected()
+    #expect(state.startingRuns.isEmpty)
+    #expect(state.logs[frontend.id]?.status?.isRunning == false)
+    await state.shutdown()
+}
+
+@MainActor
 @Test func reloadSelectedPreservesMenuCommandAndContext() async throws {
     let dir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -412,6 +495,15 @@ private func waitUntil(_ condition: () -> Bool) async throws {
     #expect(state.selectedRun?.script == original.script)
     #expect(state.selectedRun?.contextModeID == original.contextModeID)
     #expect(state.seedIsRunning(button))
+    state.stopSelected()
+    try await waitUntil { state.busyTabs.isEmpty && !state.seedIsRunning(button) }
+    #expect(state.canStartSelected)
+    state.startSelected()
+    state.startSelected()
+    try await waitUntil { state.startingRuns.isEmpty && state.seedIsRunning(button) }
+    #expect(state.runs.count == 1)
+    #expect(state.selectedRun?.script == original.script)
+    #expect(state.selectedRun?.contextModeID == original.contextModeID)
     await state.shutdown()
 }
 
@@ -544,4 +636,68 @@ private func waitUntil(_ condition: () -> Bool) async throws {
     state.reload()
     #expect(state.configuration?.tabs.map(\.id) == ["one", "two"])
     #expect(legacy.stringArray(forKey: key) == ["two", "one"])
+}
+
+@MainActor
+@Test func lifecycleLoadersTrackOnlyTheClickedActionAndRejectInactiveModeStop() async throws {
+    let config = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: config) }
+    try """
+    tabs:
+      - id: test
+        title: Test
+        buttons:
+          - id: mock
+            title: Mock
+            on_deactivate: {sigkill: true}
+            scripts:
+              - {id: server, title: Server, executable: /bin/sleep, arguments: [30]}
+          - id: lab
+            title: Lab
+            on_deactivate: {sigkill: true}
+            scripts:
+              - {id: server, title: Server, executable: /bin/sleep, arguments: [30]}
+    """.write(to: config, atomically: true, encoding: .utf8)
+    let state = AppState(configURL: config)
+    defer { Task { await state.shutdown() } }
+    let tab = try #require(state.selectedTab)
+    let mock = tab.buttons[0]
+    let lab = tab.buttons[1]
+    state.startMode(mock, in: tab)
+    #expect(state.modeActions[tab.id] == .start)
+    try await waitUntil { state.busyTabs.isEmpty && state.runningMode(in: tab)?.id == mock.id }
+    #expect(state.modeActions.isEmpty)
+    state.selectMode(lab, in: tab)
+    state.stopMode(try #require(state.selectedMode(in: tab)), in: tab)
+    #expect(state.modeActions.isEmpty)
+    #expect(state.runningMode(in: tab)?.id == mock.id)
+
+    state.selectMode(mock, in: tab)
+    state.restartMode(mock, in: tab)
+    #expect(state.modeActions[tab.id] == .restart)
+    #expect(state.stoppingRuns.isEmpty)
+    try await waitUntil { state.busyTabs.isEmpty && state.runningMode(in: tab)?.id == mock.id }
+    let id = try #require(state.selectedOutputID)
+    state.reloadSelected()
+    #expect(state.restartingRuns == [id])
+    #expect(state.modeActions.isEmpty)
+    #expect(state.stoppingRuns.isEmpty)
+    try await waitUntil { state.restartingRuns.isEmpty && state.logs[id]?.status?.isRunning == true }
+    state.stopSelected()
+    #expect(state.stoppingRuns == [id])
+    #expect(state.modeActions.isEmpty)
+    #expect(state.restartingRuns.isEmpty)
+    state.reloadSelected()
+    #expect(state.restartingRuns.isEmpty)
+    state.startMode(lab, in: tab)
+    #expect(state.modeActions.isEmpty)
+    try await waitUntil { state.stoppingRuns.isEmpty && state.logs[id]?.status?.isRunning == false }
+
+    state.startMode(mock, in: tab)
+    try await waitUntil { state.busyTabs.isEmpty && state.runningMode(in: tab)?.id == mock.id }
+    state.stopMode(mock, in: tab)
+    #expect(state.modeActions[tab.id] == .stop)
+    try await waitUntil { state.busyTabs.isEmpty && state.runningMode(in: tab) == nil }
+    #expect(state.modeActions.isEmpty)
+    await state.shutdown()
 }

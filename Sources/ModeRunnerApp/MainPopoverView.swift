@@ -11,7 +11,9 @@ private struct ParameterSelection: Identifiable {
 
 struct MainPopoverView: View {
     @ObservedObject var state: AppState
-    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
     @State private var pendingRunnerAction: RunnerAction?
     @State private var terminateProcesses = false
     @State private var confirmedRunnerAction: RunnerAction?
@@ -21,7 +23,7 @@ struct MainPopoverView: View {
     @State private var dropTargetProjectID: String?
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 11) {
             header.zIndex(1)
             if let config = state.configuration, !config.tabs.isEmpty { content(config) }
             else {
@@ -30,12 +32,16 @@ struct MainPopoverView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             if let error = state.errorMessage, state.configuration != nil {
-                Text(error).font(.caption).foregroundStyle(.red).lineLimit(3)
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.red).lineLimit(3)
+                    .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
             }
         }
-        .padding(12)
-        .frame(width: 680, height: 480)
+        .padding(18)
+        .frame(width: 760, height: 560)
         .background(windowBackground)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.22), value: state.selectedTabID)
         .onDisappear {
             draggedProjectID = nil
             dropTargetProjectID = nil
@@ -46,7 +52,8 @@ struct MainPopoverView: View {
             (NSApplication.shared.delegate as? AppDelegate)?.perform(action, terminateProcesses: terminateProcesses)
         }) { action in
             VStack(alignment: .leading, spacing: 16) {
-                Text(action.title + "?").font(.headline)
+                Label(action.title + "?", systemImage: action.systemImage)
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
                 Text("Running processes will keep working unless you choose to terminate them.")
                 Toggle("Terminate processes", isOn: $terminateProcesses)
                     .toggleStyle(.checkbox)
@@ -61,12 +68,13 @@ struct MainPopoverView: View {
                     .keyboardShortcut(.defaultAction)
                 }
             }
-            .padding(20)
-            .frame(width: 380)
+            .padding(28)
+            .frame(width: 420)
         }
         .sheet(item: $pendingParameter) { selection in
             VStack(alignment: .leading, spacing: 12) {
-                Text(selection.item.title).font(.headline)
+                Label(selection.item.title, systemImage: "terminal")
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
                 Text(selection.item.parameter?.prompt ?? "Argument")
                 TextField("Value", text: $parameterValue)
                     .textFieldStyle(.roundedBorder)
@@ -81,36 +89,48 @@ struct MainPopoverView: View {
                     .keyboardShortcut(.defaultAction)
                 }
             }
-            .padding(20).frame(width: 360)
+            .padding(28).frame(width: 400)
         }
     }
 
     private var header: some View {
-        HStack {
-            Text("Mode Runner").font(.headline)
+        HStack(spacing: 8) {
+            Image(nsImage: RunnerIcon.image)
+                .resizable().interpolation(.high)
+                .frame(width: 29, height: 29)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Mode Runner").font(.system(size: 14.5, weight: .semibold, design: .rounded))
+                Text("Your local workspace").font(.system(size: 9)).foregroundStyle(.secondary)
+            }
             Spacer()
+            if state.discoveringProcesses {
+                ProgressView().controlSize(.small).help("Finding running processes")
+            }
             RunnerActionsMenu(configURL: state.configURL, reload: { state.reload() }) { action in
                 terminateProcesses = false
                 pendingRunnerAction = action
             }
-            .frame(width: 18, height: 18)
+            .frame(width: 26, height: 26)
+            .runnerGlass(radius: 8, interactive: true)
         }
     }
 
+    @ViewBuilder
     private var windowBackground: some View {
-        LinearGradient(
-            colors: colorScheme == .dark
-                ? [Color(red: 0.20, green: 0.22, blue: 0.26), Color(red: 0.16, green: 0.18, blue: 0.21)]
-                : [Color(nsColor: .windowBackgroundColor), Color(nsColor: .controlBackgroundColor)],
-            startPoint: .topLeading, endPoint: .bottomTrailing
-        )
+        if reduceTransparency || contrast == .increased {
+            Color(nsColor: .windowBackgroundColor)
+        } else {
+            Rectangle().fill(.ultraThinMaterial)
+        }
     }
 
     @ViewBuilder
     private func content(_ config: RunnerConfiguration) -> some View {
         GeometryReader { geometry in
-            let width = geometry.size.width - 4
-            HStack(spacing: 2) {
+            let width = geometry.size.width - 6
+            RunnerGlassGroup {
+              HStack(spacing: -10) {
                 ForEach(config.tabs) { tab in
                     ProjectTabView(tab: tab, selected: state.selectedTabID == tab.id,
                                    running: state.runningMode(in: tab) != nil,
@@ -119,10 +139,10 @@ struct MainPopoverView: View {
                                    select: { state.selectedTabID = tab.id },
                                    dragChanged: { location in
                                        draggedProjectID = tab.id
-                                       dropTargetProjectID = projectTabID(at: location, width: width, tabs: config.tabs)
+                                       dropTargetProjectID = projectTabID(at: location, width: width, tabs: config.tabs, height: 24, spacing: -10, slant: 10)
                                    },
                                    dragEnded: { location in
-                                       if let target = projectTabID(at: location, width: width, tabs: config.tabs) {
+                                       if let target = projectTabID(at: location, width: width, tabs: config.tabs, height: 24, spacing: -10, slant: 10) {
                                            _ = state.moveTab(tab.id, to: target)
                                        }
                                        draggedProjectID = nil
@@ -131,27 +151,31 @@ struct MainPopoverView: View {
                     .frame(maxWidth: .infinity)
                     .zIndex(draggedProjectID == tab.id ? 1 : 0)
                 }
+              }
+              .coordinateSpace(name: "projectTabs")
             }
-            .coordinateSpace(name: "projectTabs")
-            .padding(2)
-            .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 7))
+            .padding(3)
+            .background(Color.primary.opacity(0.04), in: SlantedTabShape(slant: 12))
+            .overlay(SlantedTabShape(slant: 12).stroke(Color.primary.opacity(0.12)))
         }
-        .frame(height: 28)
+        .frame(height: 30)
         if let tab = state.selectedTab {
             GeometryReader { geometry in
                 ScrollView(.horizontal) {
-                    HStack(spacing: 8) {
+                    RunnerGlassGroup(spacing: 0) {
+                      HStack(spacing: 8) {
                         modeControls(tab)
                         alignedButtons(tab, alignment: .left)
-                        Spacer(minLength: 8)
+                        Spacer(minLength: 6)
                         alignedButtons(tab, alignment: .right)
+                      }
+                      .frame(minWidth: geometry.size.width, alignment: .leading)
                     }
-                    .frame(minWidth: geometry.size.width, alignment: .leading)
                     .padding(.vertical, 3)
                 }
                 .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
                 .scrollIndicators(.automatic)
-            }.frame(height: 32)
+            }.frame(height: 35)
             if state.visibleScripts.isEmpty {
                 ContentUnavailableView("No runs yet", systemImage: "terminal",
                                        description: Text("Start a mode or choose a command from a menu"))
@@ -173,7 +197,7 @@ struct MainPopoverView: View {
         if let selected = state.selectedMode(in: tab) {
             let running = state.runningMode(in: tab)
             let busy = state.busyTabs.contains(tab.id) || state.discoveringProcesses
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Menu {
                     ForEach(tab.buttons.filter { $0.source == nil }) { mode in
                         Button {
@@ -186,36 +210,40 @@ struct MainPopoverView: View {
                     }
                 } label: {
                     HStack(spacing: 5) {
-                        if running?.id == selected.id && !busy {
-                            Image(systemName: "play.circle.fill").foregroundStyle(.green)
+                        Group {
+                            Image(systemName: running?.id == selected.id ? "play.circle.fill" : "stop.circle.fill")
+                                .foregroundStyle(running?.id == selected.id ? Color.green : Color.secondary)
                         }
-                        Text(selected.title)
-                        if busy { ProgressView().controlSize(.mini) }
+                        .frame(width: 12, height: 12)
+                        Text(selected.title).lineLimit(1).truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
                 .menuStyle(.borderlessButton)
-                .fixedSize(horizontal: true, vertical: false)
-                .padding(.horizontal, 8)
-                .frame(height: 26)
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.35), lineWidth: 1))
+                .padding(.horizontal, 10)
+                .frame(width: 96, height: 27)
+                .runnerGlass(radius: 10, tint: running?.id == selected.id ? .green.opacity(0.12) : nil, interactive: true)
+                .help(selected.title)
                 .disabled(busy)
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
                     ModeControlButton(symbol: "play.fill", tint: .green,
-                                      help: "Start \(selected.title)", enabled: !busy && running?.id != selected.id) {
+                                      help: "Start \(selected.title)", enabled: !busy && running?.id != selected.id,
+                                      loading: state.modeActions[tab.id] == .start) {
                         state.startMode(selected, in: tab)
                     }
                     ModeControlButton(symbol: "arrow.clockwise", tint: .accentColor,
-                                      help: "Restart \(selected.title)", enabled: !busy && running?.id == selected.id) {
+                                      help: "Restart \(selected.title)", enabled: !busy && running?.id == selected.id,
+                                      loading: state.modeActions[tab.id] == .restart) {
                         state.restartMode(selected, in: tab)
                     }
                     ModeControlButton(symbol: "stop.fill", tint: .red,
-                                      help: "Stop \(running?.title ?? selected.title)", enabled: !busy && running != nil) {
-                        if let running { state.stopMode(running, in: tab) }
+                                      help: "Stop \(selected.title)", enabled: !busy && running?.id == selected.id,
+                                      loading: state.modeActions[tab.id] == .stop) {
+                        state.stopMode(selected, in: tab)
                     }
                 }
             }
-            .font(.system(size: 13))
+            .font(.system(size: 10.5))
             .fixedSize(horizontal: true, vertical: false)
         }
     }
@@ -243,70 +271,98 @@ struct MainPopoverView: View {
             } label: { buttonLabel(button.title, activity: activity) }
             .menuStyle(.borderlessButton)
             .fixedSize(horizontal: true, vertical: false)
-            .padding(.horizontal, 8)
-            .frame(height: 26)
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.35), lineWidth: 1))
+            .padding(.horizontal, 10)
+            .frame(height: 27)
+            .runnerGlass(radius: 10, interactive: true)
             .simultaneousGesture(TapGesture().onEnded { state.refreshCatalog(button, in: tab) })
         }
     }
 
     private func buttonLabel(_ title: String, activity: ButtonActivity) -> some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 4) {
             Image(systemName: "list.bullet").foregroundStyle(.secondary)
             Text(title).lineLimit(1)
             if activity == .transitioning {
                 ProgressView().controlSize(.mini)
             }
         }
-        .font(.system(size: 13))
+        .font(.system(size: 10.5))
         .fixedSize(horizontal: true, vertical: false)
     }
 
     private var output: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 10) {
             ScrollViewReader { proxy in
+              GeometryReader { geometry in
                 ScrollView(.horizontal) {
-                    HStack(spacing: 4) {
+                    RunnerGlassGroup {
+                      ProcessTabsLayout(availableWidth: max(0, geometry.size.width - 4)) {
                         ForEach(state.visibleScripts) { run in
                             HStack(spacing: 4) {
                                 Button { state.selectedOutputID = run.id } label: {
-                                    Text(run.script.displayCommand).lineLimit(1).truncationMode(.tail).frame(maxWidth: 190)
-                                }.buttonStyle(.plain)
-                                if state.logs[run.id]?.status?.isRunning != true {
+                                    HStack(spacing: 6) {
+                                        Circle().fill(statusColor(state.logs[run.id]?.status)).frame(width: 6, height: 6).fixedSize()
+                                        Text(processTabTitle(run.script.title)).lineLimit(1).truncationMode(.tail)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityAddTraits(state.selectedOutputID == run.id ? [.isSelected] : [])
+                                if state.canClose(run.id) {
                                     Button { state.close(run.id) } label: { Image(systemName: "xmark").font(.caption2) }
-                                        .buttonStyle(.plain).help("Close completed log")
+                                        .fixedSize()
+                                        .buttonStyle(.plain).help("Close completed log").accessibilityLabel("Close " + processTabTitle(run.script.title))
                                 }
                             }
-                            .padding(.horizontal, 8).padding(.vertical, 6)
-                            .background(state.selectedOutputID == run.id ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.1),
-                                        in: RoundedRectangle(cornerRadius: 5))
-                            .help(run.script.displayCommand).id(run.id)
+                            .font(.system(size: 10.5, weight: state.selectedOutputID == run.id ? .semibold : .regular))
+                            .padding(.horizontal, 10)
+                            .frame(height: 22)
+                            .runnerGlass(radius: 7, tint: state.selectedOutputID == run.id ? .accentColor.opacity(0.18) : nil,
+                                         interactive: true)
+                            .help(processTabTitle(run.script.title) + "\n" + run.script.displayCommand).id(run.id)
                         }
+                      }
+                      .padding(2)
                     }
                 }
                 .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
                 .scrollIndicators(.automatic)
-                .fixedSize(horizontal: false, vertical: true)
                 .onChange(of: state.selectedOutputID) { _, id in if let id { proxy.scrollTo(id) } }
+              }
+              .frame(height: 26)
             }
             if let id = state.selectedOutputID, let log = state.logs[id] {
-                HStack {
+                HStack(spacing: 8) {
                     Circle().fill(statusColor(log.status)).frame(width: 7, height: 7)
                     Text(log.status?.displayText ?? "Not running").font(.caption).foregroundStyle(.secondary)
                     Text("· \(log.buffer.count) bytes").font(.caption).foregroundStyle(.tertiary)
                     Spacer()
-                    if log.status?.isRunning == true {
-                        Button("Reload") { state.reloadSelected() }
+                    if state.startingRuns.contains(id) ||
+                        (log.status?.isRunning == false && !state.restartingRuns.contains(id) && !state.stoppingRuns.contains(id)) {
+                        ProcessActionButton(title: "Start", loading: state.startingRuns.contains(id)) {
+                            state.startSelected()
+                        }
+                        .help("Start the selected command")
+                        .disabled(!state.canStartSelected)
+                    } else if log.status?.isRunning == true || state.restartingRuns.contains(id) || state.stoppingRuns.contains(id) {
+                        ProcessActionButton(title: "Reload", loading: state.restartingRuns.contains(id)) {
+                            state.reloadSelected()
+                        }
                             .help("Restart the selected command")
                             .disabled(log.status == .starting || log.status == .stopping ||
-                                      state.restartingRuns.contains(id) ||
+                                      state.restartingRuns.contains(id) || state.stoppingRuns.contains(id) ||
                                       state.selectedRun.map { state.busyTabs.contains($0.tabID) } == true)
-                        Button("Stop") { state.stopSelected() }
-                            .disabled(log.status == .stopping || state.restartingRuns.contains(id))
+                        ProcessActionButton(title: "Stop", loading: state.stoppingRuns.contains(id)) {
+                            state.stopSelected()
+                        }
+                        .disabled(log.status == .stopping || state.restartingRuns.contains(id) ||
+                                  state.stoppingRuns.contains(id) ||
+                                  state.selectedRun.map { state.busyTabs.contains($0.tabID) } == true)
                     }
                     Button("Clear") { state.clearSelectedLog() }
                 }
+                .controlSize(.small)
+                .buttonStyle(LogActionButtonStyle())
+                .padding(.horizontal, 4)
                 if let url = log.latestRunningLink {
                     Link(destination: url) {
                         Label(url.absoluteString, systemImage: "link")
@@ -316,13 +372,13 @@ struct MainPopoverView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .help(url.absoluteString)
-                    .padding(.horizontal, 8).padding(.vertical, 5)
-                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .runnerGlass(tint: .accentColor.opacity(0.1), interactive: true)
                     .background(PointingHandCursorRegion().allowsHitTesting(false))
                 }
                 LogTextView(text: log.buffer.string, boldFirstLine: log.hasDetectionMessage).id(id)
-                    .clipShape(RoundedRectangle(cornerRadius: 7))
-                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.primary.opacity(0.08), lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.1)))
             }
         }
         .frame(maxHeight: .infinity)
@@ -359,28 +415,24 @@ private struct ModeControlButton: View {
     let tint: Color
     let help: String
     let enabled: Bool
+    let loading: Bool
     let action: () -> Void
-    @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(enabled ? tint : Color.secondary.opacity(0.5))
-                .frame(width: 20, height: 20)
-                .background(tint.opacity(enabled ? (hovering ? 0.24 : 0.08) : 0),
-                            in: RoundedRectangle(cornerRadius: 5))
-                .overlay(RoundedRectangle(cornerRadius: 5)
-                    .strokeBorder(tint.opacity(enabled && hovering ? 0.5 : 0), lineWidth: 1))
-                .frame(width: 16, height: 24)
-                .contentShape(Rectangle())
+            Group {
+                if loading { DotActivityIndicator().frame(width: 14, height: 14) }
+                else { Image(systemName: symbol).font(.system(size: 10.5, weight: .semibold)) }
+            }
+                .foregroundStyle(enabled || loading ? tint : Color.secondary.opacity(0.5))
+                .frame(width: 26, height: 26)
+                .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
+        .runnerGlass(radius: 8, tint: enabled || loading ? tint.opacity(0.1) : nil, interactive: enabled)
         .disabled(!enabled)
         .help(help)
-        .accessibilityLabel(help)
-        .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: hovering)
+        .accessibilityLabel(help + (loading ? ", in progress" : ""))
     }
 }
 
@@ -409,20 +461,20 @@ private struct ProjectTabView: View {
     }
 
     private var label: some View {
-        HStack(spacing: 5) {
-            if running { Circle().fill(.green).frame(width: 6, height: 6) }
+        HStack(spacing: 4) {
+            if running { Circle().fill(.green).frame(width: 5, height: 5) }
             Text(tab.title)
         }
-            .font(.system(size: 13, weight: selected ? .semibold : .regular))
+            .font(.system(size: 10.5, weight: selected ? .semibold : .regular))
             .lineLimit(1)
             .frame(maxWidth: .infinity)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
-            .background(selected || dragging ? Color(nsColor: .controlBackgroundColor) : Color.clear,
-                        in: RoundedRectangle(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5)
-                .strokeBorder(dropTarget ? Color.accentColor : Color.clear, lineWidth: 2))
-            .contentShape(Rectangle())
+            .padding(.horizontal, 8)
+            .frame(height: 24)
+            .modifier(ProjectTabSurface(selected: selected || dragging))
+            .overlay(SlantedTabShape()
+                .stroke(dropTarget || selected ? Color.accentColor.opacity(0.7) : Color.primary.opacity(0.12),
+                        lineWidth: dropTarget ? 2 : 1))
+            .contentShape(SlantedTabShape())
     }
 
     private var dragGesture: some Gesture {
@@ -433,9 +485,24 @@ private struct ProjectTabView: View {
     }
 }
 
-func projectTabID(at location: CGPoint, width: CGFloat, tabs: [RunnerTab]) -> String? {
+private struct ProjectTabSurface: ViewModifier {
+    let selected: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if selected { content.runnerGlass(in: SlantedTabShape(), tint: .accentColor.opacity(0.12), interactive: true) }
+        else { content }
+    }
+}
+
+func projectTabID(at location: CGPoint, width: CGFloat, tabs: [RunnerTab], height: CGFloat = 24,
+                  spacing: CGFloat = 2, slant: CGFloat = 0) -> String? {
     guard !tabs.isEmpty, width > 0, location.x >= 0, location.x < width,
-          location.y >= 0, location.y <= 24 else { return nil }
-    let segmentWidth = (width + 2) / CGFloat(tabs.count)
-    return tabs[min(Int(location.x / segmentWidth), tabs.count - 1)].id
+          location.y >= 0, location.y <= height else { return nil }
+    guard height > 0, width + spacing > 0 else { return nil }
+    let leftEdge = slant * (1 - location.y / height)
+    let rightEdge = width - slant * location.y / height
+    guard location.x >= leftEdge, location.x < rightEdge else { return nil }
+    let segmentWidth = (width + spacing) / CGFloat(tabs.count)
+    return tabs[min(Int((location.x - leftEdge) / segmentWidth), tabs.count - 1)].id
 }

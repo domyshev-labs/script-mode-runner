@@ -7,10 +7,12 @@ enum RunnerAction: String, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .restart: "Restart \"Mode runner\""
-        case .poweroff: "Poweroff \"Mode runner\""
+        case .restart: "Quit&Start \"Mode Runner\""
+        case .poweroff: "Quit \"Mode Runner\""
         }
     }
+
+    var systemImage: String { self == .restart ? "arrow.right.square" : "power" }
 }
 
 // Keep native menu navigation while presenting a styled, noninteractive help panel.
@@ -93,13 +95,23 @@ struct RunnerActionsMenu: NSViewRepresentable {
             menuAppearance = sender.effectiveAppearance
             let reload = NSMenuItem(title: "Reload configuration", action: #selector(reloadConfiguration), keyEquivalent: "")
             reload.target = self
+            reload.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
             menu.addItem(reload)
+            menu.addItem(.separator())
+            let about = NSMenuItem(title: "About...", action: #selector(AppDelegate.showAbout), keyEquivalent: "")
+            about.target = NSApplication.shared.delegate
+            about.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil)
+            menu.addItem(about)
+            let documentation = NSMenuItem(title: "Documentation", action: #selector(AppDelegate.showDocumentation), keyEquivalent: "")
+            documentation.target = NSApplication.shared.delegate
+            documentation.image = NSImage(systemSymbolName: "book", accessibilityDescription: nil)
+            menu.addItem(documentation)
             menu.addItem(.separator())
             for action in [RunnerAction.restart, .poweroff] {
                 let item = NSMenuItem(title: action.title, action: #selector(selectAction(_:)), keyEquivalent: "")
                 item.representedObject = action.rawValue
                 item.target = self
-                item.image = NSImage(systemSymbolName: action == .poweroff ? "power" : "arrow.clockwise",
+                item.image = NSImage(systemSymbolName: action.systemImage,
                                      accessibilityDescription: nil)
                 menu.addItem(item)
             }
@@ -123,7 +135,7 @@ private final class SquareMenuButton: NSControl {
     private var pressed = false
     private var hoverTrackingArea: NSTrackingArea?
 
-    override var intrinsicContentSize: NSSize { NSSize(width: 18, height: 18) }
+    override var intrinsicContentSize: NSSize { NSSize(width: 32, height: 32) }
     override var acceptsFirstResponder: Bool { true }
 
     override func updateTrackingAreas() {
@@ -157,9 +169,9 @@ private final class SquareMenuButton: NSControl {
 
     override func draw(_ dirtyRect: NSRect) {
         let background: NSColor
-        if pressed { background = NSColor(calibratedRed: 0.29, green: 0.33, blue: 0.39, alpha: 1) }
-        else if hovered { background = NSColor(calibratedRed: 0.23, green: 0.26, blue: 0.31, alpha: 1) }
-        else { background = NSColor(calibratedRed: 0.17, green: 0.19, blue: 0.23, alpha: 1) }
+        if pressed { background = NSColor.labelColor.withAlphaComponent(0.12) }
+        else if hovered { background = NSColor.labelColor.withAlphaComponent(0.06) }
+        else { background = NSColor.clear }
         background.setFill()
         NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).fill()
         let strokeWidth: CGFloat = 1.2
@@ -171,7 +183,7 @@ private final class SquareMenuButton: NSControl {
             lines.move(to: NSPoint(x: bounds.midX - halfLineLength, y: y))
             lines.line(to: NSPoint(x: bounds.midX + halfLineLength, y: y))
         }
-        NSColor.white.setStroke()
+        NSColor.labelColor.setStroke()
         lines.stroke()
     }
 }
@@ -203,10 +215,7 @@ private struct ReloadConfigurationHelp: View {
         .padding(18)
         .frame(width: 320, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
-        .background(colorScheme == .dark
-            ? Color(red: 0.20, green: 0.23, blue: 0.28)
-            : Color(red: 0.96, green: 0.97, blue: 0.99), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.12)))
+        .runnerGlass(radius: 18)
         .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
         .padding(12)
     }

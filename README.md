@@ -4,6 +4,11 @@ A native macOS 14+ menu bar app that runs configured groups of commands and disp
 
 For setup and installation on another Mac, see [INSTALL.md](INSTALL.md).
 
+For daily use, see the [user guide](Sources/ModeRunnerApp/Resources/Usage.md), also
+available offline through **Documentation** in the app's top-right menu. This
+portable Markdown file is the single source for the bundled guide and can be
+published on the project website later.
+
 ## Quick start
 
 1. Create `~/.config/mode-runner/config.yaml` using `Examples/config.yaml` as a template.
@@ -17,7 +22,16 @@ The renamed app also imports locally saved project tab order.
 
 A command can use an `executable`/`arguments` pair or a `command` string executed through a shell. Yarn, npm, Python, local binaries, and other programs are handled the same way.
 
-Run `./Scripts/install.sh` to build a locally signed `.app` with a custom Finder and Spotlight icon. A three-second popover points to the menu bar icon on startup.
+Build with Xcode 26 or newer (Xcode 27 is recommended for macOS 27). Navigation and controls use native Liquid Glass on macOS 26 and later, including the system's current rendering on macOS 27. macOS 14–15 use standard materials. Light/dark appearance, Reduce Transparency, and Increase Contrast are respected. Logs keep a solid background for readability.
+
+Run `./Scripts/install.sh` to build a locally signed `.app` with a custom Finder and Spotlight icon. The colored menu bar icon matches the app icon and gently grows and shrinks three times on startup. Reduce Motion disables the animation.
+
+The menu bar image is generated from the same vector artwork as the app icon. After changing `Scripts/generate-icon.swift`, refresh the checked-in resource before building:
+
+```bash
+swift Scripts/generate-icon.swift .build/menu-icon.iconset
+cp .build/menu-icon.iconset/icon_128x128.png Sources/ModeRunnerApp/Resources/MenuBarIcon.png
+```
 
 ## Test applications
 
@@ -44,12 +58,15 @@ MODE_RUNNER_CONFIG="$PWD/Examples/test-apps.yaml" swift run ModeRunner
 - Drag project tabs onto one another to change their order. The order is saved
   locally for each configuration file and restored when the app starts again.
 - Reloading preserves running processes while updating the configuration shown in the UI.
-- The top-right hamburger menu offers **Reload configuration**, **Restart "Mode runner"**,
-  and **Poweroff "Mode runner"**. Hover over Reload configuration to see the file path.
-- Restart and poweroff require confirmation. **Terminate processes** is unchecked by
+- The top-right hamburger menu offers **Reload configuration**, **About...**,
+  **Documentation**, **Quit&Start "Mode Runner"**, and **Quit "Mode Runner"**.
+  About includes the app icon, author, version/build when available, and project
+  link. Documentation opens the bundled Markdown user guide in a separate window.
+  Hover over Reload configuration to see the file path.
+- Quit&Start and Quit require confirmation. **Terminate processes** is unchecked by
   default; enable it to stop managed process groups before closing the app.
   If exit hangs for six seconds, an independent watchdog forces the app to quit;
-  Restart then launches a replacement instance.
+  Quit&Start then launches a replacement instance.
 - At startup and configuration reload, the app discovers existing mode processes
   owned by the current user using their exact command and working directory. This
   includes processes left by a previous app instance and matching terminal commands.
@@ -73,9 +90,14 @@ item opens a log tab in the current mode context and leaves the mode running. Re
 script selections create new runs; seed selections cannot overlap in the same
 working directory. Completed menu logs remain available in that context until closed. Mode logs show only the selected mode, with one tab per configured script; restarting shows its newest run. Stopping or finishing a mode keeps its last logs visible. Use **Stop**
 to stop a running command, **Reload** immediately to its left to restart only that
-command with fresh output, **Close** on a completed tab, and **Clear** to clear
-its output. Log tabs show the launch command, truncate long titles, and expose
-the full command in a tooltip.
+command with fresh output, **Start** to run a stopped or completed command again,
+**Close** on a completed menu-command or seed tab, and **Clear** to clear
+its output. Log tabs keep their natural title widths while the row fits, then
+truncate longer titles to fit the container. Crowded rows remain horizontally
+scrollable. Tooltips show the full title, including any port annotation, and the
+launch command.
+Configured mode command tabs cannot be closed, including when their processes
+are stopped or completed.
 
 HTTP and HTTPS links in logs show a pointing-hand cursor and open with a normal
 left click in the default browser. While the selected process is running, its
