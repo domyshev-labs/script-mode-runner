@@ -15,12 +15,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var readyToTerminate = false
     private var exitWatchdog: Process?
     private let informationWindows = RunnerInformationWindows()
+    private let actionPreferences = RunnerActionPreferences()
+    private let statusMenuCoordinator = RunnerActionsMenu.Coordinator()
+
+    override init() {
+        super.init()
+        informationWindows.mainPopover = mainPopover
+        statusMenuCoordinator.onClose = { [weak self] in self?.statusItem?.menu = nil }
+    }
 
     @objc func showAbout() {
         informationWindows.showAbout(relativeTo: mainPopover.contentViewController?.view.window)
     }
     @objc func showDocumentation() {
         informationWindows.showDocumentation(relativeTo: mainPopover.contentViewController?.view.window)
+    }
+
+    @objc func showSettings() {
+        informationWindows.showSettings(preferences: actionPreferences,
+                                        relativeTo: mainPopover.contentViewController?.view.window)
+    }
+
+    func request(_ action: RunnerAction) {
+        if actionPreferences.showConfirmation, !mainPopover.isShown, let button = statusItem?.button {
+            showMainPopover(relativeTo: button)
+        }
+        actionPreferences.request(action) { [weak self] action, terminate in
+            self?.perform(action, terminateProcesses: terminate)
+        }
     }
 
     func perform(_ action: RunnerAction, terminateProcesses: Bool) {
@@ -44,9 +66,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.toolTip = "Mode Runner"
             button.target = self
             button.action = #selector(togglePopover)
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         mainPopover.behavior = .transient
-        mainPopover.contentViewController = NSHostingController(rootView: MainPopoverView(state: state))
+        mainPopover.contentViewController = NSHostingController(rootView: MainPopoverView(state: state, actions: actionPreferences))
         startupTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
             guard !Task.isCancelled, let self, let icon = statusIcon,
@@ -74,6 +97,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func togglePopover() {
         stopStartupPulse()
         guard let button = statusItem?.button else { return }
+        if NSApplication.shared.currentEvent?.type == .rightMouseUp {
+            guard let state else { return }
+            statusMenuCoordinator.parent = RunnerActionsMenu(configURL: state.configURL,
+                                                            reload: { state.reload() },
+                                                            select: { [weak self] in self?.request($0) })
+            let menu = statusMenuCoordinator.makeMenu(appearance: button.effectiveAppearance)
+            // Let the status item position its menu below the menu bar from the first frame.
+            statusItem?.menu = menu
+            button.performClick(nil)
+            return
+        }
         if mainPopover.isShown { mainPopover.performClose(nil) }
         else { showMainPopover(relativeTo: button) }
     }

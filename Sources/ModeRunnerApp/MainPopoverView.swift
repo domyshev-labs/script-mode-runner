@@ -11,12 +11,10 @@ private struct ParameterSelection: Identifiable {
 
 struct MainPopoverView: View {
     @ObservedObject var state: AppState
+    @ObservedObject var actions: RunnerActionPreferences
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var contrast
-    @State private var pendingRunnerAction: RunnerAction?
-    @State private var terminateProcesses = false
-    @State private var confirmedRunnerAction: RunnerAction?
     @State private var pendingParameter: ParameterSelection?
     @State private var parameterValue = ""
     @State private var draggedProjectID: String?
@@ -38,7 +36,9 @@ struct MainPopoverView: View {
                     .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
             }
         }
-        .padding(18)
+        .padding(.horizontal, 18)
+        .padding(.top, 10)
+        .padding(.bottom, 18)
         .frame(width: 760, height: 560)
         .background(windowBackground)
         .animation(reduceMotion ? nil : .smooth(duration: 0.22), value: state.selectedTabID)
@@ -46,24 +46,25 @@ struct MainPopoverView: View {
             draggedProjectID = nil
             dropTargetProjectID = nil
         }
-        .sheet(item: $pendingRunnerAction, onDismiss: {
-            guard let action = confirmedRunnerAction else { return }
-            confirmedRunnerAction = nil
-            (NSApplication.shared.delegate as? AppDelegate)?.perform(action, terminateProcesses: terminateProcesses)
+        .sheet(item: $actions.pendingAction, onDismiss: {
+            actions.finishConfirmation { action, terminate in
+                (NSApplication.shared.delegate as? AppDelegate)?.perform(action, terminateProcesses: terminate)
+            }
         }) { action in
             VStack(alignment: .leading, spacing: 16) {
                 Label(action.title + "?", systemImage: action.systemImage)
                     .font(.system(size: 18, weight: .semibold, design: .rounded))
                 Text("Running processes will keep working unless you choose to terminate them.")
-                Toggle("Terminate processes", isOn: $terminateProcesses)
+                Toggle("Terminate processes", isOn: $actions.terminateProcesses)
+                    .toggleStyle(.checkbox)
+                Toggle("Remember choice", isOn: $actions.rememberChoice)
                     .toggleStyle(.checkbox)
                 HStack {
                     Spacer()
-                    Button("Cancel") { pendingRunnerAction = nil }
+                    Button("Cancel") { actions.pendingAction = nil }
                         .keyboardShortcut(.cancelAction)
                     Button("Confirm") {
-                        confirmedRunnerAction = action
-                        pendingRunnerAction = nil
+                        actions.confirm(action)
                     }
                     .keyboardShortcut(.defaultAction)
                 }
@@ -108,8 +109,7 @@ struct MainPopoverView: View {
                 ProgressView().controlSize(.small).help("Finding running processes")
             }
             RunnerActionsMenu(configURL: state.configURL, reload: { state.reload() }) { action in
-                terminateProcesses = false
-                pendingRunnerAction = action
+                (NSApplication.shared.delegate as? AppDelegate)?.request(action)
             }
             .frame(width: 26, height: 26)
             .runnerGlass(radius: 8, interactive: true)
@@ -318,7 +318,7 @@ struct MainPopoverView: View {
                             .frame(height: 22)
                             .runnerGlass(radius: 7, tint: state.selectedOutputID == run.id ? .accentColor.opacity(0.18) : nil,
                                          interactive: true)
-                            .help(processTabTitle(run.script.title) + "\n" + run.script.displayCommand).id(run.id)
+                            .background(ProcessTabTooltip(script: run.script)).id(run.id)
                         }
                       }
                       .padding(2)

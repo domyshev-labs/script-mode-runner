@@ -4,13 +4,28 @@ import Testing
 @testable import ModeRunnerApp
 
 @Test func processTabsNormalizeOnlyTrailingPortAnnotations() {
-    #expect(processTabTitle("yarn mock · :3015") == "yarn mock • p:3015")
-    #expect(processTabTitle("yarn mock :3015") == "yarn mock • p:3015")
-    #expect(processTabTitle("yarn mock : 3015") == "yarn mock • p:3015")
-    #expect(processTabTitle("yarn dev:mock · :3015") == "yarn dev:mock • p:3015")
-    #expect(processTabTitle("yarn dev:lab :3010") == "yarn dev:lab • p:3010")
-    #expect(processTabTitle("yarn dev:lab • p:3010") == "yarn dev:lab • p:3010")
+    #expect(processTabTitle("yarn mock · :3015") == "yarn mock • 3015")
+    #expect(processTabTitle("yarn mock :3015") == "yarn mock • 3015")
+    #expect(processTabTitle("yarn mock : 3015") == "yarn mock • 3015")
+    #expect(processTabTitle("yarn dev:mock · :3015") == "yarn dev:mock • 3015")
+    #expect(processTabTitle("yarn dev:lab :3010") == "yarn dev:lab • 3010")
+    #expect(processTabTitle("yarn dev:lab • p:3010") == "yarn dev:lab • 3010")
+    #expect(processTabTitle("yarn mock • 3015") == "yarn mock • 3015")
     #expect(processTabTitle("yarn dev:mock") == "yarn dev:mock")
+}
+@Test func processTabTooltipShowsCommandAndPortAsSeparateValues() {
+    for title in ["yarn mock · :3015", "yarn mock • p:3015", "yarn mock • 3015"] {
+        let content = ProcessTabTooltipContent(script: RunnerScript(id: "mock", title: title,
+                                                                    command: "yarn mock"))
+        #expect(content.command == "yarn mock")
+        #expect(content.port == "3015")
+    }
+    let content = ProcessTabTooltipContent(script: RunnerScript(id: "dev", title: "Development",
+        command: "yarn dev:lab", environment: ["PORT": "3010"]))
+    #expect(content.command == "yarn dev:lab")
+    #expect(content.port == "3010")
+    let noPort = ProcessTabTooltipContent(script: RunnerScript(id: "test", title: "Tests", command: "yarn test"))
+    #expect(noPort.port == "Not configured")
 }
 @MainActor
 @Test func logTextViewHasVisibleDocumentAndRendersText() throws {

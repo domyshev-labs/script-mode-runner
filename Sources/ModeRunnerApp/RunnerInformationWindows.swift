@@ -2,9 +2,12 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class RunnerInformationWindows {
+final class RunnerInformationWindows: NSObject, NSWindowDelegate {
+    weak var mainPopover: NSPopover?
+    private var presentedWindows: Set<ObjectIdentifier> = []
     private var aboutWindow: NSWindow?
     private var documentationWindow: NSWindow?
+    private var settingsWindow: NSWindow?
 
     func showAbout(relativeTo parent: NSWindow? = nil) {
         if aboutWindow == nil {
@@ -26,7 +29,20 @@ final class RunnerInformationWindows {
                 return
             }
         }
-        present(documentationWindow, relativeTo: parent)
+        present(documentationWindow, relativeTo: parent, centeredOnScreen: true)
+    }
+
+    func showSettings(preferences: RunnerActionPreferences, relativeTo parent: NSWindow? = nil) {
+        if settingsWindow == nil {
+            settingsWindow = makeSettingsWindow(preferences: preferences)
+        }
+        present(settingsWindow, relativeTo: parent)
+    }
+
+    func makeSettingsWindow(preferences: RunnerActionPreferences) -> NSWindow {
+        makeWindow(title: "Mode Runner Settings", size: NSSize(width: 440, height: 230),
+                   minimumSize: NSSize(width: 440, height: 230), resizable: false,
+                   content: RunnerSettingsView(preferences: preferences))
     }
 
     func makeAboutWindow() -> NSWindow {
@@ -53,6 +69,7 @@ final class RunnerInformationWindows {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                               styleMask: style, backing: .buffered, defer: false)
         window.title = title
+        window.delegate = self
         window.isReleasedWhenClosed = false
         window.hidesOnDeactivate = true
         let controller = NSHostingController(rootView: content.frame(
@@ -69,28 +86,59 @@ final class RunnerInformationWindows {
         return window
     }
 
-    func prepareForPresentation(_ window: NSWindow, relativeTo parent: NSWindow?) {
+    func prepareForPresentation(_ window: NSWindow, relativeTo parent: NSWindow?,
+                                centeredOnScreen: Bool = false) {
+        let screen = parent?.screen ?? NSScreen.main
         guard let parent else {
             window.level = .normal
+            if centeredOnScreen, let screen {
+                window.setFrameOrigin(NSPoint(x: screen.visibleFrame.midX - window.frame.width / 2,
+                                              y: screen.visibleFrame.midY - window.frame.height / 2))
+            }
             return
         }
         window.level = NSWindow.Level(rawValue: parent.level.rawValue + 1)
         let frame = window.frame
         var origin = NSPoint(x: parent.frame.midX - frame.width / 2,
                              y: parent.frame.midY - frame.height / 2)
-        if let screen = parent.screen ?? NSScreen.main {
+        if let screen {
             let visible = screen.visibleFrame
+            if centeredOnScreen {
+                origin = NSPoint(x: visible.midX - frame.width / 2,
+                                 y: visible.midY - frame.height / 2)
+            }
             origin.x = max(visible.minX, min(origin.x, visible.maxX - frame.width))
             origin.y = max(visible.minY, min(origin.y, visible.maxY - frame.height))
         }
         window.setFrameOrigin(origin)
     }
 
-    private func present(_ window: NSWindow?, relativeTo parent: NSWindow?) {
+    private func present(_ window: NSWindow?, relativeTo parent: NSWindow?,
+                         centeredOnScreen: Bool = false) {
         guard let window else { return }
-        prepareForPresentation(window, relativeTo: parent)
+        beginPresentation(window)
+        prepareForPresentation(window, relativeTo: parent, centeredOnScreen: centeredOnScreen)
         NSApplication.shared.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+    }
+
+    func beginPresentation(_ window: NSWindow) {
+        presentedWindows.insert(ObjectIdentifier(window))
+        // Keep the workspace open while focus moves to an information window.
+        mainPopover?.behavior = .applicationDefined
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow,
+              presentedWindows.remove(ObjectIdentifier(window)) != nil else { return }
+        // Finish the close-button event before restoring transient dismissal.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, presentedWindows.isEmpty, let popover = mainPopover else { return }
+            if popover.isShown {
+                popover.contentViewController?.view.window?.makeKeyAndOrderFront(nil)
+            }
+            popover.behavior = .transient
+        }
     }
 }
 

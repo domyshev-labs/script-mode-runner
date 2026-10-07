@@ -536,8 +536,8 @@ final class AppState: ObservableObject {
 }
 
 func processTabTitle(_ title: String) -> String {
-    title.replacingOccurrences(of: #"\s*(?:[·•]\s*)?(?:p)?:\s*([0-9]{1,5})\s*$"#,
-                               with: " • p:$1", options: .regularExpression)
+    title.replacingOccurrences(of: #"\s*(?:[·•]\s*(?:p?:\s*)?|p?:\s*)([0-9]{1,5})\s*$"#,
+                               with: " • $1", options: .regularExpression)
 }
 
 func existingProcessMessage(script: RunnerScript, location: String, detectedAt: Date = Date(),
@@ -561,7 +561,7 @@ func existingProcessMessage(script: RunnerScript, location: String, detectedAt: 
 
 func configuredLocalURL(for script: RunnerScript) -> URL? {
     // Existing configurations annotate script titles with explicit ports, e.g. "Dev · :3010".
-    let titlePattern = #"(?:^|[\s·]):([0-9]{1,5})(?=$|[\s·])"#
+    let titlePattern = #"(?:^|[\s·•])p?:\s*([0-9]{1,5})(?=$|[\s·•])"#
     let argumentPattern = #"(?:^|\s)--port(?:=|\s+)([0-9]{1,5})(?=$|\s)"#
     func port(in text: String, pattern: String) -> Int? {
         guard let expression = try? NSRegularExpression(pattern: pattern),
@@ -570,7 +570,8 @@ func configuredLocalURL(for script: RunnerScript) -> URL? {
               (1...65535).contains(value) else { return nil }
         return value
     }
-    let titlePort = port(in: script.title, pattern: titlePattern)
+    let titlePort = port(in: script.title, pattern: titlePattern) ??
+        port(in: script.title, pattern: #"[·•]\s*([0-9]{1,5})\s*$"#)
     let commandPort = port(in: script.command ?? script.arguments.joined(separator: " "), pattern: argumentPattern)
     let environmentPort = script.environment["PORT"].flatMap(Int.init).flatMap { (1...65535).contains($0) ? $0 : nil }
     guard let value = titlePort ?? commandPort ?? environmentPort else { return nil }

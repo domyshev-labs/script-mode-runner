@@ -41,6 +41,7 @@ struct RunnerActionsMenu: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSMenuDelegate {
         var parent: RunnerActionsMenu?
+        var onClose: (() -> Void)?
         private var helpTimer: Timer?
         private var helpPanel: NSPanel?
         private var menuAppearance: NSAppearance?
@@ -57,7 +58,10 @@ struct RunnerActionsMenu: NSViewRepresentable {
             RunLoop.main.add(timer, forMode: .eventTracking)
         }
 
-        func menuDidClose(_ menu: NSMenu) { hideHelp() }
+        func menuDidClose(_ menu: NSMenu) {
+            hideHelp()
+            onClose?()
+        }
 
         private func hideHelp() {
             helpTimer?.invalidate()
@@ -90,13 +94,23 @@ struct RunnerActionsMenu: NSViewRepresentable {
 
         @objc func openMenu(_ sender: NSControl) {
             guard parent != nil else { return }
+            let menu = makeMenu(appearance: sender.effectiveAppearance)
+            let menuY = sender.isFlipped ? sender.bounds.maxY + 4 : sender.bounds.minY - 4
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: menuY), in: sender)
+        }
+
+        func makeMenu(appearance: NSAppearance) -> NSMenu {
             let menu = NSMenu()
             menu.delegate = self
-            menuAppearance = sender.effectiveAppearance
+            menuAppearance = appearance
             let reload = NSMenuItem(title: "Reload configuration", action: #selector(reloadConfiguration), keyEquivalent: "")
             reload.target = self
             reload.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
             menu.addItem(reload)
+            let settings = NSMenuItem(title: "Settings...", action: #selector(AppDelegate.showSettings), keyEquivalent: "")
+            settings.target = NSApplication.shared.delegate
+            settings.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)
+            menu.addItem(settings)
             menu.addItem(.separator())
             let about = NSMenuItem(title: "About...", action: #selector(AppDelegate.showAbout), keyEquivalent: "")
             about.target = NSApplication.shared.delegate
@@ -115,8 +129,7 @@ struct RunnerActionsMenu: NSViewRepresentable {
                                      accessibilityDescription: nil)
                 menu.addItem(item)
             }
-            let menuY = sender.isFlipped ? sender.bounds.maxY + 4 : sender.bounds.minY - 4
-            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: menuY), in: sender)
+            return menu
         }
 
         @objc func reloadConfiguration() { parent?.reload() }

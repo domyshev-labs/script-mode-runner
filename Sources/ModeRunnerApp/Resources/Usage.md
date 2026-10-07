@@ -46,7 +46,7 @@ After saving the file, choose **Reload configuration** in the top-right menu. Ho
 
 ## Read and control logs
 
-- Select a command's log tab to see its output and status. Titles stay fully visible while the tabs fit; longer titles shorten with an ellipsis when space is limited. The tooltip shows the full title with its port and the launch command. Scroll horizontally when there are too many tabs to fit comfortably.
+- Select a command's log tab to see its output and status. Ports appear as `command • 3015`. Titles stay fully visible while the tabs fit; longer titles shorten with an ellipsis when space is limited. Hover over a tab for aligned `command:` and `port:` rows showing the launch command and configured port. Scroll horizontally when there are too many tabs to fit comfortably.
 - **Stop** stops the selected command. **Reload** restarts only that command with fresh output. **Start** runs a stopped or completed command again when compatible with the current mode.
 - **Clear** clears the selected output. Configured mode command tabs stay available even after stopping or completing. Only completed command-menu and seed log tabs have a close control.
 - Click HTTP or HTTPS links in output to open them in your default browser. A running process's latest detected URL also appears below its status.
@@ -72,9 +72,9 @@ Seed catalogs use `json_file`, `command`, or `seed_module` sources. A seed item 
 
 ## Quit, restart, and existing processes
 
-The top-right menu contains **About...**, **Documentation**, **Quit&Start "Mode Runner"**, and **Quit "Mode Runner"**. About shows the author, version, and project link; Documentation opens this guide offline.
+The top-right menu also opens when you right-click the app icon in the menu bar. It contains **Reload configuration**, **Settings...**, **About...**, **Documentation**, **Quit&Start "Mode Runner"**, and **Quit "Mode Runner"**. About shows the author, version, and project link; Documentation opens this guide offline.
 
-Quit and Quit&Start ask for confirmation. **Terminate processes** is unchecked by default, so commands keep running. Check it to stop managed processes before the app exits. Quit&Start opens a replacement app instance.
+Quit and Quit&Start ask for confirmation. **Terminate processes** is unchecked by default, so commands keep running. Check it to stop managed processes before the app exits. Quit&Start opens a replacement app instance. Check **Remember choice** and confirm to skip future confirmations for both actions and reuse your process choice. Cancel does not save the choice. Open **Settings...** to enable confirmation again or change whether processes are terminated.
 
 At startup and configuration reload, Mode Runner detects matching mode processes owned by your user, using their exact commands and explicit working directories. It can manage processes left by an earlier instance or started in Terminal. Ambiguous matches are left unmanaged. Keep server commands in the foreground so the app can track them.
 
