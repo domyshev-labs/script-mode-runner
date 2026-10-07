@@ -28,6 +28,8 @@ struct ScriptRun: Identifiable {
     var requestedStop = false
 }
 
+enum LifecycleAction { case start, restart, stop }
+
 enum ButtonActivity { case idle, transitioning, running, partial, failed }
 
 struct CatalogState {
@@ -50,6 +52,8 @@ final class AppState: ObservableObject {
     @Published private(set) var busyTabs: Set<String> = []
     @Published private(set) var transitioningModes: [String: Set<String>] = [:]
     @Published private(set) var restartingRuns: Set<String> = []
+    @Published private(set) var stoppingRuns: Set<String> = []
+    @Published private(set) var modeActions: [String: LifecycleAction] = [:]
 
     let configURL: URL
     private let relay: EventRelay
@@ -253,21 +257,24 @@ final class AppState: ObservableObject {
 
     func restartMode(_ mode: RunnerMode, in tab: RunnerTab) {
         guard runningMode(in: tab)?.id == mode.id else { return }
-        transition(mode, in: tab, startAfterStop: true)
+        transition(mode, in: tab, startAfterStop: true, action: .restart)
     }
 
     func toggle(_ mode: RunnerMode, in tab: RunnerTab) {
         transition(mode, in: tab, startAfterStop: runningMode(in: tab)?.id != mode.id)
     }
 
-    private func transition(_ mode: RunnerMode, in tab: RunnerTab, startAfterStop: Bool, skipIfAlreadyRunning: Bool = false) {
+    private func transition(_ mode: RunnerMode, in tab: RunnerTab, startAfterStop: Bool, skipIfAlreadyRunning: Bool = false,
+                            action: LifecycleAction? = nil) {
         guard !busyTabs.contains(tab.id) else { return }
         busyTabs.insert(tab.id)
+        modeActions[tab.id] = action ?? (startAfterStop ? .start : .stop)
         let live = runs.filter { $0.tabID == tab.id && !$0.isMenu && logs[$0.id]?.status?.isRunning == true }
         transitioningModes[tab.id] = live.isEmpty ? [mode.id] : Set(live.map(\.buttonID))
         Task {
             defer {
                 transitioningModes[tab.id] = nil
+                modeActions[tab.id] = nil
                 busyTabs.remove(tab.id)
             }
             await discoveryTask?.value
@@ -347,11 +354,29 @@ final class AppState: ObservableObject {
         await supervisor.stop(runID: id, policy: policy)
     }
 
-    func stopSelected() { if let id = selectedOutputID { Task { await stop(id) } } }
+    func stopSelected() {
+        guard let run = selectedRun, logs[run.id]?.status?.isRunning == true,
+              !busyTabs.contains(run.tabID), !restartingRuns.contains(run.id),
+              !stoppingRuns.contains(run.id), logs[run.id]?.status != .stopping else { return }
+        stoppingRuns.insert(run.id)
+        busyTabs.insert(run.tabID)
+        Task {
+            defer {
+                stoppingRuns.remove(run.id)
+                busyTabs.remove(run.tabID)
+            }
+            await stop(run.id)
+            // Keep the clicked button busy until the exit event reaches the UI.
+            for _ in 0..<100 where logs[run.id]?.status?.isRunning == true {
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+        }
+    }
 
     func reloadSelected() {
         guard let run = selectedRun, case .running = logs[run.id]?.status,
-              !busyTabs.contains(run.tabID), !restartingRuns.contains(run.id) else { return }
+              !busyTabs.contains(run.tabID), !restartingRuns.contains(run.id),
+              !stoppingRuns.contains(run.id) else { return }
         restartingRuns.insert(run.id)
         busyTabs.insert(run.tabID)
         Task {
@@ -373,11 +398,14 @@ final class AppState: ObservableObject {
             logs[run.id] = ScriptLog(status: .starting)
             if !run.isMenu { activeModes[run.tabID] = run.buttonID }
             await execute(run.id, script: run.script)
+            while logs[run.id]?.status == .starting {
+                try? await Task.sleep(for: .milliseconds(20))
+            }
         }
     }
 
     func close(_ id: String) {
-        guard logs[id]?.status?.isRunning != true, !restartingRuns.contains(id) else { return }
+        guard logs[id]?.status?.isRunning != true, !restartingRuns.contains(id), !stoppingRuns.contains(id) else { return }
         runs.removeAll { $0.id == id }
         logs[id] = nil
         selectVisibleOutput()

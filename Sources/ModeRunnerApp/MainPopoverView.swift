@@ -139,10 +139,10 @@ struct MainPopoverView: View {
                                    select: { state.selectedTabID = tab.id },
                                    dragChanged: { location in
                                        draggedProjectID = tab.id
-                                       dropTargetProjectID = projectTabID(at: location, width: width, tabs: config.tabs, height: 29, spacing: -10, slant: 10)
+                                       dropTargetProjectID = projectTabID(at: location, width: width, tabs: config.tabs, height: 24, spacing: -10, slant: 10)
                                    },
                                    dragEnded: { location in
-                                       if let target = projectTabID(at: location, width: width, tabs: config.tabs, height: 29, spacing: -10, slant: 10) {
+                                       if let target = projectTabID(at: location, width: width, tabs: config.tabs, height: 24, spacing: -10, slant: 10) {
                                            _ = state.moveTab(tab.id, to: target)
                                        }
                                        draggedProjectID = nil
@@ -158,7 +158,7 @@ struct MainPopoverView: View {
             .background(Color.primary.opacity(0.04), in: SlantedTabShape(slant: 12))
             .overlay(SlantedTabShape(slant: 12).stroke(Color.primary.opacity(0.12)))
         }
-        .frame(height: 35)
+        .frame(height: 30)
         if let tab = state.selectedTab {
             GeometryReader { geometry in
                 ScrollView(.horizontal) {
@@ -211,11 +211,8 @@ struct MainPopoverView: View {
                 } label: {
                     HStack(spacing: 5) {
                         Group {
-                            if busy { ProgressView().controlSize(.mini) }
-                            else {
-                                Image(systemName: running?.id == selected.id ? "play.circle.fill" : "stop.circle.fill")
-                                    .foregroundStyle(running?.id == selected.id ? Color.green : Color.secondary)
-                            }
+                            Image(systemName: running?.id == selected.id ? "play.circle.fill" : "stop.circle.fill")
+                                .foregroundStyle(running?.id == selected.id ? Color.green : Color.secondary)
                         }
                         .frame(width: 12, height: 12)
                         Text(selected.title).lineLimit(1).truncationMode(.tail)
@@ -230,16 +227,19 @@ struct MainPopoverView: View {
                 .disabled(busy)
                 HStack(spacing: 8) {
                     ModeControlButton(symbol: "play.fill", tint: .green,
-                                      help: "Start \(selected.title)", enabled: !busy && running?.id != selected.id) {
+                                      help: "Start \(selected.title)", enabled: !busy && running?.id != selected.id,
+                                      loading: state.modeActions[tab.id] == .start) {
                         state.startMode(selected, in: tab)
                     }
                     ModeControlButton(symbol: "arrow.clockwise", tint: .accentColor,
-                                      help: "Restart \(selected.title)", enabled: !busy && running?.id == selected.id) {
+                                      help: "Restart \(selected.title)", enabled: !busy && running?.id == selected.id,
+                                      loading: state.modeActions[tab.id] == .restart) {
                         state.restartMode(selected, in: tab)
                     }
                     ModeControlButton(symbol: "stop.fill", tint: .red,
-                                      help: "Stop \(running?.title ?? selected.title)", enabled: !busy && running != nil) {
-                        if let running { state.stopMode(running, in: tab) }
+                                      help: "Stop \(selected.title)", enabled: !busy && running?.id == selected.id,
+                                      loading: state.modeActions[tab.id] == .stop) {
+                        state.stopMode(selected, in: tab)
                     }
                 }
             }
@@ -333,14 +333,20 @@ struct MainPopoverView: View {
                     Text(log.status?.displayText ?? "Not running").font(.caption).foregroundStyle(.secondary)
                     Text("· \(log.buffer.count) bytes").font(.caption).foregroundStyle(.tertiary)
                     Spacer()
-                    if log.status?.isRunning == true {
-                        Button("Reload") { state.reloadSelected() }
+                    if log.status?.isRunning == true || state.restartingRuns.contains(id) || state.stoppingRuns.contains(id) {
+                        ProcessActionButton(title: "Reload", loading: state.restartingRuns.contains(id)) {
+                            state.reloadSelected()
+                        }
                             .help("Restart the selected command")
                             .disabled(log.status == .starting || log.status == .stopping ||
-                                      state.restartingRuns.contains(id) ||
+                                      state.restartingRuns.contains(id) || state.stoppingRuns.contains(id) ||
                                       state.selectedRun.map { state.busyTabs.contains($0.tabID) } == true)
-                        Button("Stop") { state.stopSelected() }
-                            .disabled(log.status == .stopping || state.restartingRuns.contains(id))
+                        ProcessActionButton(title: "Stop", loading: state.stoppingRuns.contains(id)) {
+                            state.stopSelected()
+                        }
+                        .disabled(log.status == .stopping || state.restartingRuns.contains(id) ||
+                                  state.stoppingRuns.contains(id) ||
+                                  state.selectedRun.map { state.busyTabs.contains($0.tabID) } == true)
                     }
                     Button("Clear") { state.clearSelectedLog() }
                 }
@@ -399,21 +405,24 @@ private struct ModeControlButton: View {
     let tint: Color
     let help: String
     let enabled: Bool
+    let loading: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 10.5, weight: .semibold))
-                .foregroundStyle(enabled ? tint : Color.secondary.opacity(0.5))
+            Group {
+                if loading { DotActivityIndicator().frame(width: 14, height: 14) }
+                else { Image(systemName: symbol).font(.system(size: 10.5, weight: .semibold)) }
+            }
+                .foregroundStyle(enabled || loading ? tint : Color.secondary.opacity(0.5))
                 .frame(width: 26, height: 26)
                 .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
-        .runnerGlass(radius: 8, tint: enabled ? tint.opacity(0.1) : nil, interactive: enabled)
+        .runnerGlass(radius: 8, tint: enabled || loading ? tint.opacity(0.1) : nil, interactive: enabled)
         .disabled(!enabled)
         .help(help)
-        .accessibilityLabel(help)
+        .accessibilityLabel(help + (loading ? ", in progress" : ""))
     }
 }
 
@@ -450,7 +459,7 @@ private struct ProjectTabView: View {
             .lineLimit(1)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 8)
-            .frame(height: 29)
+            .frame(height: 24)
             .modifier(ProjectTabSurface(selected: selected || dragging))
             .overlay(SlantedTabShape()
                 .stroke(dropTarget || selected ? Color.accentColor.opacity(0.7) : Color.primary.opacity(0.12),
