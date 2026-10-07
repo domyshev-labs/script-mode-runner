@@ -98,6 +98,15 @@ struct RunnerActionsMenu: NSViewRepresentable {
             reload.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
             menu.addItem(reload)
             menu.addItem(.separator())
+            let about = NSMenuItem(title: "About...", action: #selector(AppDelegate.showAbout), keyEquivalent: "")
+            about.target = NSApplication.shared.delegate
+            about.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil)
+            menu.addItem(about)
+            let documentation = NSMenuItem(title: "Documentation", action: #selector(AppDelegate.showDocumentation), keyEquivalent: "")
+            documentation.target = NSApplication.shared.delegate
+            documentation.image = NSImage(systemSymbolName: "book", accessibilityDescription: nil)
+            menu.addItem(documentation)
+            menu.addItem(.separator())
             for action in [RunnerAction.restart, .poweroff] {
                 let item = NSMenuItem(title: action.title, action: #selector(selectAction(_:)), keyEquivalent: "")
                 item.representedObject = action.rawValue

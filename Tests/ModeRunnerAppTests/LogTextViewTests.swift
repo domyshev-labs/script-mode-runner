@@ -4,10 +4,12 @@ import Testing
 @testable import ModeRunnerApp
 
 @Test func processTabsNormalizeOnlyTrailingPortAnnotations() {
-    #expect(processTabTitle("yarn mock · :3015") == "yarn mock : 3015")
-    #expect(processTabTitle("yarn mock :3015") == "yarn mock : 3015")
-    #expect(processTabTitle("yarn mock : 3015") == "yarn mock : 3015")
-    #expect(processTabTitle("yarn dev:mock · :3015") == "yarn dev:mock : 3015")
+    #expect(processTabTitle("yarn mock · :3015") == "yarn mock • p:3015")
+    #expect(processTabTitle("yarn mock :3015") == "yarn mock • p:3015")
+    #expect(processTabTitle("yarn mock : 3015") == "yarn mock • p:3015")
+    #expect(processTabTitle("yarn dev:mock · :3015") == "yarn dev:mock • p:3015")
+    #expect(processTabTitle("yarn dev:lab :3010") == "yarn dev:lab • p:3010")
+    #expect(processTabTitle("yarn dev:lab • p:3010") == "yarn dev:lab • p:3010")
     #expect(processTabTitle("yarn dev:mock") == "yarn dev:mock")
 }
 @MainActor

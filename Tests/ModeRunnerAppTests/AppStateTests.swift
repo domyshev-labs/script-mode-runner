@@ -62,8 +62,17 @@ private func waitUntil(_ condition: () -> Bool) async throws {
     try await waitUntil { state.logs[firstID]?.status?.isRunning == false }
     #expect(state.activity(server, in: tab) == .idle)
     #expect(state.activeModes[tab.id] == nil)
+    let retainedLog = state.logs[firstID]?.buffer.string
+    #expect(!state.canClose(firstID))
     state.close(firstID)
+    #expect(state.runs.count == 2)
+    #expect(state.visibleScripts.contains { $0.id == firstID })
+    #expect(state.logs[firstID]?.buffer.string == retainedLog)
+    let menuID = try #require(state.runs.first { $0.isMenu }?.id)
+    #expect(state.canClose(menuID))
+    state.close(menuID)
     #expect(state.runs.count == 1)
+    #expect(state.runs.first?.id == firstID)
     await state.shutdown()
 }
 
@@ -244,6 +253,10 @@ private func waitUntil(_ condition: () -> Bool) async throws {
     #expect(state.runs.count == 1)
     await state.stop(id)
     try await waitUntil { !state.seedIsRunning(button) }
+    #expect(state.canClose(id))
+    state.close(id)
+    #expect(state.runs.isEmpty)
+    #expect(state.logs[id] == nil)
     let fast = MenuItem(id: "fast", title: "Fast", arguments: ["0"])
     for _ in 0..<23 {
         state.launch(fast, button: button, tab: tab)

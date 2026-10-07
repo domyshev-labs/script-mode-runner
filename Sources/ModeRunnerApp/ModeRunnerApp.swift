@@ -14,6 +14,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var preparingTermination = false
     private var readyToTerminate = false
     private var exitWatchdog: Process?
+    private let informationWindows = RunnerInformationWindows()
+
+    @objc func showAbout() {
+        informationWindows.showAbout(relativeTo: mainPopover.contentViewController?.view.window)
+    }
+    @objc func showDocumentation() {
+        informationWindows.showDocumentation(relativeTo: mainPopover.contentViewController?.view.window)
+    }
 
     func perform(_ action: RunnerAction, terminateProcesses: Bool) {
         guard !preparingTermination else { return }

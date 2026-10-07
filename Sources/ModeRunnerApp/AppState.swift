@@ -461,9 +461,14 @@ final class AppState: ObservableObject {
         }
     }
 
+    func canClose(_ id: String) -> Bool {
+        runs.contains { $0.id == id && $0.isMenu } &&
+            logs[id]?.status?.isRunning == false && !startingRuns.contains(id) &&
+            !restartingRuns.contains(id) && !stoppingRuns.contains(id)
+    }
+
     func close(_ id: String) {
-        guard logs[id]?.status?.isRunning != true, !startingRuns.contains(id),
-              !restartingRuns.contains(id), !stoppingRuns.contains(id) else { return }
+        guard canClose(id) else { return }
         runs.removeAll { $0.id == id }
         logs[id] = nil
         selectVisibleOutput()
@@ -531,8 +536,8 @@ final class AppState: ObservableObject {
 }
 
 func processTabTitle(_ title: String) -> String {
-    title.replacingOccurrences(of: #"\s*(?:·\s*)?:\s*([0-9]{1,5})\s*$"#,
-                               with: " : $1", options: .regularExpression)
+    title.replacingOccurrences(of: #"\s*(?:[·•]\s*)?(?:p)?:\s*([0-9]{1,5})\s*$"#,
+                               with: " • p:$1", options: .regularExpression)
 }
 
 func existingProcessMessage(script: RunnerScript, location: String, detectedAt: Date = Date(),

@@ -293,21 +293,23 @@ struct MainPopoverView: View {
     private var output: some View {
         VStack(spacing: 10) {
             ScrollViewReader { proxy in
+              GeometryReader { geometry in
                 ScrollView(.horizontal) {
                     RunnerGlassGroup {
-                      HStack(spacing: 8) {
+                      ProcessTabsLayout(availableWidth: max(0, geometry.size.width - 4)) {
                         ForEach(state.visibleScripts) { run in
                             HStack(spacing: 4) {
                                 Button { state.selectedOutputID = run.id } label: {
                                     HStack(spacing: 6) {
-                                        Circle().fill(statusColor(state.logs[run.id]?.status)).frame(width: 6, height: 6)
-                                        Text(processTabTitle(run.script.title)).lineLimit(1).truncationMode(.tail).frame(maxWidth: 190)
+                                        Circle().fill(statusColor(state.logs[run.id]?.status)).frame(width: 6, height: 6).fixedSize()
+                                        Text(processTabTitle(run.script.title)).lineLimit(1).truncationMode(.tail)
                                     }
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityAddTraits(state.selectedOutputID == run.id ? [.isSelected] : [])
-                                if state.logs[run.id]?.status?.isRunning != true {
+                                if state.canClose(run.id) {
                                     Button { state.close(run.id) } label: { Image(systemName: "xmark").font(.caption2) }
+                                        .fixedSize()
                                         .buttonStyle(.plain).help("Close completed log").accessibilityLabel("Close " + processTabTitle(run.script.title))
                                 }
                             }
@@ -316,7 +318,7 @@ struct MainPopoverView: View {
                             .frame(height: 22)
                             .runnerGlass(radius: 7, tint: state.selectedOutputID == run.id ? .accentColor.opacity(0.18) : nil,
                                          interactive: true)
-                            .help(run.script.displayCommand).id(run.id)
+                            .help(processTabTitle(run.script.title) + "\n" + run.script.displayCommand).id(run.id)
                         }
                       }
                       .padding(2)
@@ -324,8 +326,9 @@ struct MainPopoverView: View {
                 }
                 .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
                 .scrollIndicators(.automatic)
-                .fixedSize(horizontal: false, vertical: true)
                 .onChange(of: state.selectedOutputID) { _, id in if let id { proxy.scrollTo(id) } }
+              }
+              .frame(height: 26)
             }
             if let id = state.selectedOutputID, let log = state.logs[id] {
                 HStack(spacing: 8) {
