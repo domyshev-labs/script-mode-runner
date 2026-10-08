@@ -117,6 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         prepareMainPopover(state: state)
         NSApplication.shared.activate(ignoringOtherApps: true)
         mainPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        runnerPopover.insetFromRightEdge(of: button.window?.screen)
         mainPopover.contentViewController?.view.window?.makeKey()
     }
 

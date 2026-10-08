@@ -1,6 +1,43 @@
 # Mode Runner
 
-A native macOS 14+ menu bar app that runs configured groups of commands and displays their output.
+**Your frontend projects and mock servers, together in your Mac's menu bar.**
+
+Working on several frontend projects shouldn't mean juggling terminals,
+remembering ports, and wondering what happens to your dev servers when you close
+your IDE.
+
+Sound familiar?
+
+- Should you run your apps in a terminal or through your IDE?
+- A separate terminal window, or another tab inside the IDE?
+- Will closing the IDE also stop your dev servers?
+- Which project is running on which localhost port?
+- Does every app need a mock server—and another terminal to keep track of?
+
+We built Mode Runner because we were tired of keeping all of this in our heads.
+
+Give each project a tab, configure its development modes, and launch the app and
+its mock server together. See what's running, read each command's logs, and open
+local URLs from one place.
+
+## Less juggling. More building.
+
+- **Keep several projects running.** Switch project tabs without stopping their
+  processes.
+- **Start your app and mocks together.** A mode can launch multiple commands, each
+  with its own log tab.
+- **Switch development modes.** Starting another mode stops the previous mode
+  within that project.
+- **Open your local app without remembering its port.** Click URLs detected in
+  logs or configured localhost shortcuts.
+- **Keep your workflow independent of your IDE.** Manage processes from the menu
+  bar, and choose whether they keep running when you quit Mode Runner.
+- **Use your existing commands.** Run npm, Yarn, pnpm, or other tools with a YAML
+  configuration.
+
+A native macOS app. Requires macOS 14 or later.
+
+## Installation and documentation
 
 For setup and installation on another Mac, see [INSTALL.md](INSTALL.md).
 
