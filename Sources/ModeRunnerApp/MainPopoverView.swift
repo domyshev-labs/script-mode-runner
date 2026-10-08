@@ -39,7 +39,7 @@ struct MainPopoverView: View {
         .padding(.horizontal, 18)
         .padding(.top, 10)
         .padding(.bottom, 18)
-        .frame(width: 760, height: 560)
+        .frame(width: RunnerPopover.contentSize.width, height: RunnerPopover.contentSize.height)
         .background(windowBackground)
         .animation(reduceMotion ? nil : .smooth(duration: 0.22), value: state.selectedTabID)
         .onDisappear {

@@ -6,7 +6,8 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var state: AppState?
     private var statusItem: NSStatusItem?
-    private let mainPopover = NSPopover()
+    private let runnerPopover = RunnerPopover()
+    private var mainPopover: NSPopover { runnerPopover.popover }
     private var statusIcon: StatusIconView?
     private var startupTask: Task<Void, Never>?
     private var pendingAction: RunnerAction?
@@ -68,8 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.action = #selector(togglePopover)
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
-        mainPopover.behavior = .transient
-        mainPopover.contentViewController = NSHostingController(rootView: MainPopoverView(state: state, actions: actionPreferences))
+        prepareMainPopover(state: state)
         startupTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
             guard !Task.isCancelled, let self, let icon = statusIcon,
@@ -113,9 +113,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showMainPopover(relativeTo button: NSStatusBarButton) {
+        guard let state else { return }
+        prepareMainPopover(state: state)
         NSApplication.shared.activate(ignoringOtherApps: true)
         mainPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         mainPopover.contentViewController?.view.window?.makeKey()
+    }
+
+    private func prepareMainPopover(state: AppState) {
+        informationWindows.mainPopover = runnerPopover.prepare {
+            MainPopoverView(state: state, actions: actionPreferences)
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
